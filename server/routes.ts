@@ -3,6 +3,8 @@ import { addTodo, completeTodo, listTodos, removeTodo } from "./store.js";
 import { sessionManager } from "./session-manager.js";
 import { runCodexReview } from "./codex-review.js";
 import { broadcast } from "./ws.js";
+import { readPreferences, writePreferences } from "./preferences.js";
+import type { Preferences } from "./preferences.js";
 import type { PermissionMode } from "./types.js";
 
 const VALID_MODES: PermissionMode[] = [
@@ -14,6 +16,13 @@ const VALID_MODES: PermissionMode[] = [
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/health", async () => ({ ok: true, ts: new Date().toISOString() }));
+
+  // ── Preferences ────────────────────────────────────────────────────
+  app.get("/api/preferences", async () => ({ preferences: await readPreferences() }));
+  app.put<{ Body: Partial<Preferences> }>(
+    "/api/preferences",
+    async (req) => ({ preferences: await writePreferences(req.body ?? {}) }),
+  );
 
   // ── To-dos ─────────────────────────────────────────────────────────
   app.get("/api/todos", async () => ({ todos: await listTodos() }));

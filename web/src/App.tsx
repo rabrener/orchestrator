@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, connectWs } from "./api.js";
+import { api, applyPreferences, connectWs, type Preferences } from "./api.js";
 import { TodoList } from "./components/TodoList.js";
 import { AgentList } from "./components/AgentList.js";
 import { ChatPanel } from "./components/ChatPanel.js";
+import { SettingsPanel } from "./components/SettingsPanel.js";
 import {
   getPermissionState,
   notify,
@@ -29,6 +30,8 @@ export function App() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermissionState>(
     getPermissionState(),
   );
+  const [preferences, setPreferences] = useState<Preferences | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const wsConnectedRef = useRef(false);
   const todosRef = useRef<Todo[]>([]);
   const prevStatusRef = useRef<Record<string, string>>({});
@@ -108,6 +111,13 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    api
+      .getPreferences()
+      .then((prefs) => {
+        applyPreferences(prefs);
+        setPreferences(prefs);
+      })
+      .catch(() => undefined);
     api.listTodos().then(setTodos).catch((err) => setError(String(err)));
     api
       .listSessions()
@@ -233,6 +243,15 @@ export function App() {
     setNotifPermission(result);
   };
 
+  const onPrefsChange = async (next: Preferences) => {
+    setPreferences(next);
+    try {
+      await api.updatePreferences(next);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   return (
     <div className="app">
       <header className="app-header">
@@ -250,7 +269,22 @@ export function App() {
             {error} (click to dismiss)
           </span>
         )}
+        <button
+          className="settings-btn"
+          onClick={() => setSettingsOpen(true)}
+          aria-label="Settings"
+          title="Settings"
+        >
+          ⚙
+        </button>
       </header>
+      {settingsOpen && preferences && (
+        <SettingsPanel
+          preferences={preferences}
+          onChange={onPrefsChange}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       <div className="app-body">
         <TodoList
           todos={todos}

@@ -56,7 +56,43 @@ export const api = {
     jsonFetch(`/api/sessions/${todoId}/codex-review`, { method: "POST" }),
   stopSession: (todoId: string) =>
     jsonFetch(`/api/sessions/${todoId}/stop`, { method: "POST" }),
+
+  getPreferences: () =>
+    jsonFetch<{ preferences: Preferences }>("/api/preferences").then((r) => r.preferences),
+  updatePreferences: (input: Partial<Preferences>) =>
+    jsonFetch<{ preferences: Preferences }>("/api/preferences", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }).then((r) => r.preferences),
 };
+
+export const THEMES = [
+  { id: "dark-soft", label: "Dark — Soft", group: "dark" },
+  { id: "dark-warm", label: "Dark — Warm", group: "dark" },
+  { id: "dark-high-contrast", label: "Dark — High Contrast", group: "dark" },
+  { id: "light-soft", label: "Light — Soft", group: "light" },
+  { id: "light-warm", label: "Light — Warm", group: "light" },
+] as const;
+export type Theme = (typeof THEMES)[number]["id"];
+
+export const FONT_SIZES = [
+  { id: "small", label: "Small" },
+  { id: "medium", label: "Medium" },
+  { id: "large", label: "Large" },
+  { id: "x-large", label: "Extra Large" },
+] as const;
+export type FontSize = (typeof FONT_SIZES)[number]["id"];
+
+export interface Preferences {
+  theme: Theme;
+  font_size: FontSize;
+}
+
+export function applyPreferences(prefs: Preferences): void {
+  const root = document.documentElement;
+  root.setAttribute("data-theme", prefs.theme);
+  root.setAttribute("data-font-size", prefs.font_size);
+}
 
 export function connectWs(onEvent: (e: WsEvent) => void): () => void {
   let socket: WebSocket | null = null;

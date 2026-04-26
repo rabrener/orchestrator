@@ -239,6 +239,12 @@ function PermissionPrompt({
   perm: PendingPermission;
   onResolve: (perm: PendingPermission, allow: boolean) => void;
 }) {
+  const [resolved, setResolved] = useState<"allow" | "deny" | null>(null);
+  const handle = (allow: boolean) => {
+    if (resolved) return;
+    setResolved(allow ? "allow" : "deny");
+    onResolve(perm, allow);
+  };
   return (
     <div className="permission-prompt">
       <div className="permission-header">
@@ -246,11 +252,19 @@ function PermissionPrompt({
       </div>
       <pre className="permission-input">{JSON.stringify(perm.input, null, 2)}</pre>
       <div className="permission-actions">
-        <button className="btn-primary" onClick={() => onResolve(perm, true)}>
-          allow
+        <button
+          className="btn-primary"
+          disabled={resolved !== null}
+          onClick={() => handle(true)}
+        >
+          {resolved === "allow" ? "allowed" : "allow"}
         </button>
-        <button className="btn-secondary" onClick={() => onResolve(perm, false)}>
-          deny
+        <button
+          className="btn-secondary"
+          disabled={resolved !== null}
+          onClick={() => handle(false)}
+        >
+          {resolved === "deny" ? "denied" : "deny"}
         </button>
       </div>
     </div>

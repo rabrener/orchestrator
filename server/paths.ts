@@ -6,6 +6,10 @@ export const DATA_ROOT = join(homedir(), ".jinni-todo");
 export const SESSIONS_DIR = join(DATA_ROOT, "sessions");
 export const ARCHIVE_DIR = join(DATA_ROOT, "archive");
 
+const XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+export const PREFS_DIR = join(XDG_CONFIG_HOME, "orchestrator-ui");
+export const PREFS_FILE = join(PREFS_DIR, "preferences.json");
+
 export function todayLocal(): string {
   const d = new Date();
   const y = d.getFullYear();
