@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# Vite cache
+.vite-cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# gstack workspace metadata
+.gstack/
+
+# Runtime / local data
+*.pid
+*.seed
+*.pid.lock
+coverage/
+.nyc_output/
+
+# Orchestrator runtime artifacts (the parent dirs live outside ui/, but
+# guard against accidental copies landing here)
+sessions/
+transcripts/
