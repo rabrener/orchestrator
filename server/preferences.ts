@@ -14,14 +14,26 @@ export type Theme = (typeof THEMES)[number];
 export const FONT_SIZES = ["small", "medium", "large", "x-large"] as const;
 export type FontSize = (typeof FONT_SIZES)[number];
 
+export const PERMISSION_MODES = [
+  "default",
+  "acceptEdits",
+  "plan",
+  "bypassPermissions",
+  "dontAsk",
+  "auto",
+] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
 export interface Preferences {
   theme: Theme;
   font_size: FontSize;
+  default_permission_mode: PermissionMode;
 }
 
 const DEFAULTS: Preferences = {
   theme: "dark-soft",
   font_size: "medium",
+  default_permission_mode: "default",
 };
 
 function sanitize(input: unknown): Preferences {
@@ -30,7 +42,12 @@ function sanitize(input: unknown): Preferences {
   const font_size = FONT_SIZES.includes(obj.font_size as FontSize)
     ? (obj.font_size as FontSize)
     : DEFAULTS.font_size;
-  return { theme, font_size };
+  const default_permission_mode = PERMISSION_MODES.includes(
+    obj.default_permission_mode as PermissionMode,
+  )
+    ? (obj.default_permission_mode as PermissionMode)
+    : DEFAULTS.default_permission_mode;
+  return { theme, font_size, default_permission_mode };
 }
 
 export async function readPreferences(): Promise<Preferences> {

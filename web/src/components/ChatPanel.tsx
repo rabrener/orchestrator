@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ModePicker } from "./ModePicker.js";
 import type {
   ChatMessage,
   PendingPermission,
@@ -45,8 +46,6 @@ interface Props {
   onStop: () => void;
   onStartSession: () => void;
 }
-
-const MODES: PermissionMode[] = ["default", "acceptEdits", "plan", "bypassPermissions"];
 
 export function ChatPanel({
   todo,
@@ -149,19 +148,11 @@ export function ChatPanel({
           </form>
 
           <footer className="chat-footer">
-            <label className="mode-switcher">
-              mode:
-              <select
-                value={session.permission_mode}
-                onChange={(e) => onSetMode(e.target.value as PermissionMode)}
-              >
-                {MODES.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ModePicker
+              label="mode"
+              value={session.permission_mode}
+              onChange={onSetMode}
+            />
             <button className="btn-secondary" onClick={onCodexReview}>
               ⚡ codex review
             </button>

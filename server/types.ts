@@ -9,7 +9,9 @@ export type PermissionMode =
   | "default"
   | "acceptEdits"
   | "plan"
-  | "bypassPermissions";
+  | "bypassPermissions"
+  | "dontAsk"
+  | "auto";
 
 export interface Todo {
   id: string;

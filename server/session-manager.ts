@@ -8,6 +8,7 @@ import { JINNI_ROOT } from "./paths.js";
 import { InputQueue } from "./input-queue.js";
 import { appendMessage, readTranscript } from "./transcript.js";
 import { archiveSession, listAllMetas, readMeta, writeMeta } from "./session-meta.js";
+import { readPreferences } from "./preferences.js";
 import { setTodoSessionId } from "./store.js";
 import type {
   ChatMessage,
@@ -75,6 +76,9 @@ class ActiveSession {
         permissionMode: this.permissionMode,
         allowedTools: ALLOWED_READ_TOOLS,
         systemPrompt: { type: "preset", preset: "claude_code" },
+        // Required gate so users can opt into 'bypassPermissions' via the dropdown.
+        // Does not auto-enable bypass — only permits the mode switch.
+        allowDangerouslySkipPermissions: true,
         ...(CLAUDE_EXECUTABLE ? { pathToClaudeCodeExecutable: CLAUDE_EXECUTABLE } : {}),
         canUseTool: async (toolName, input) => {
           const requestId = `perm_${nanoid(8)}`;
@@ -294,7 +298,9 @@ class SessionManager {
     }
     if (!this.listener) throw new Error("listener not configured");
     const existingMeta = await readMeta(todoId);
-    const mode: PermissionMode = existingMeta?.permission_mode ?? "default";
+    const prefs = await readPreferences().catch(() => null);
+    const mode: PermissionMode =
+      existingMeta?.permission_mode ?? prefs?.default_permission_mode ?? "default";
     const session = new ActiveSession(todoId, JINNI_ROOT, mode);
     if (resumeSessionId) session.sessionId = resumeSessionId;
     this.sessions.set(todoId, session);

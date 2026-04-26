@@ -1,5 +1,7 @@
 import type { ChatMessage, PermissionMode, SessionMeta, Todo, WsEvent } from "./types.js";
 
+export type { PermissionMode };
+
 async function jsonFetch<T>(input: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...(init?.headers as Record<string, string> | undefined) };
   if (init?.body !== undefined && !headers["Content-Type"]) {
@@ -83,9 +85,50 @@ export const FONT_SIZES = [
 ] as const;
 export type FontSize = (typeof FONT_SIZES)[number]["id"];
 
+export const PERMISSION_MODES: ReadonlyArray<{
+  id: PermissionMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "default",
+    label: "Standard",
+    description: "Asks before editing files, running shell commands, or other tool calls.",
+  },
+  {
+    id: "acceptEdits",
+    label: "Accept Edits",
+    description: "Auto-approves file edits. Still asks for shell commands and other tools.",
+  },
+  {
+    id: "plan",
+    label: "Plan Only",
+    description: "Agent analyzes and plans without executing any tools.",
+  },
+  {
+    id: "auto",
+    label: "Auto",
+    description:
+      "A safety classifier auto-approves safe tool calls and only asks you about risky ones.",
+  },
+  {
+    id: "dontAsk",
+    label: "Don't Ask",
+    description:
+      "Never prompts. Pre-approved tools run; anything else is denied immediately.",
+  },
+  {
+    id: "bypassPermissions",
+    label: "Dangerously Accept Permissions",
+    description:
+      "Auto-approves every tool call with no safety checks. Equivalent to the SDK's bypassPermissions mode — use with caution.",
+  },
+];
+
 export interface Preferences {
   theme: Theme;
   font_size: FontSize;
+  default_permission_mode: PermissionMode;
 }
 
 export function applyPreferences(prefs: Preferences): void {

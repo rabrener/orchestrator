@@ -12,6 +12,8 @@ const VALID_MODES: PermissionMode[] = [
   "acceptEdits",
   "plan",
   "bypassPermissions",
+  "dontAsk",
+  "auto",
 ];
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {

@@ -4,9 +4,11 @@ import {
   FONT_SIZES,
   THEMES,
   type FontSize,
+  type PermissionMode,
   type Preferences,
   type Theme,
 } from "../api.js";
+import { ModePicker } from "./ModePicker.js";
 
 interface Props {
   preferences: Preferences;
@@ -32,6 +34,9 @@ export function SettingsPanel({ preferences, onChange, onClose }: Props) {
     const next = { ...preferences, font_size };
     applyPreferences(next);
     onChange(next);
+  };
+  const setDefaultMode = (default_permission_mode: PermissionMode) => {
+    onChange({ ...preferences, default_permission_mode });
   };
 
   return (
@@ -79,10 +84,23 @@ export function SettingsPanel({ preferences, onChange, onClose }: Props) {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="settings-section">
+          <h3>Default permission mode</h3>
+          <ModePicker
+            value={preferences.default_permission_mode}
+            onChange={setDefaultMode}
+            size="md"
+          />
           <p className="settings-hint">
-            Stored at <code>~/.config/orchestrator-ui/preferences.json</code> — not in git.
+            Applied to every newly started agent. You can still change the mode per session.
           </p>
         </section>
+
+        <p className="settings-hint settings-footer">
+          Stored at <code>~/.config/orchestrator-ui/preferences.json</code> — not in git.
+        </p>
       </div>
     </div>
   );
