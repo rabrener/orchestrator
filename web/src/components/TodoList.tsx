@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Plus } from "lucide-react";
 import type { SessionMeta, Todo } from "../types.js";
 
 interface Props {
@@ -45,8 +46,13 @@ export function TodoList({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
         />
-        <button type="submit" disabled={!draft.trim()}>
-          add
+        <button
+          type="submit"
+          disabled={!draft.trim()}
+          aria-label="Add to-do"
+          title="Add to-do"
+        >
+          <Plus size={16} aria-hidden="true" />
         </button>
       </form>
       <ul className="todo-list">

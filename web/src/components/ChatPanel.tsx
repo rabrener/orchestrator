@@ -1,6 +1,7 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Send, Square } from "lucide-react";
 import { ModePicker } from "./ModePicker.js";
 import type {
   ChatMessage,
@@ -131,7 +132,12 @@ export function ChatPanel({
             )}
           </div>
 
-          <Composer onSend={onSendMessage} restore={composerRestore} />
+          <Composer
+            onSend={onSendMessage}
+            restore={composerRestore}
+            isInFlight={session.status === "working" || session.status === "asking"}
+            onStop={onStop}
+          />
 
           <footer className="chat-footer">
             <ModePicker
@@ -141,9 +147,6 @@ export function ChatPanel({
             />
             <button className="btn-secondary" onClick={onCodexReview}>
               ⚡ codex review
-            </button>
-            <button className="btn-secondary" onClick={onStop}>
-              ⏹ stop
             </button>
             <button className="btn-primary" onClick={onComplete}>
               ✓ mark done
@@ -224,9 +227,13 @@ function EditableTitle({
 const Composer = memo(function Composer({
   onSend,
   restore,
+  isInFlight,
+  onStop,
 }: {
   onSend: (text: string) => void;
   restore: { text: string; nonce: number } | null;
+  isInFlight: boolean;
+  onStop: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const [vimMode, setVimMode] = useState(false);
@@ -270,6 +277,7 @@ const Composer = memo(function Composer({
   }, [draft, vimMode]);
 
   const submit = () => {
+    if (isInFlight) return;
     const text = draftRef.current.trim();
     if (!text) return;
     onSend(text);
@@ -281,6 +289,28 @@ const Composer = memo(function Composer({
     e.preventDefault();
     submit();
   };
+
+  const actionButton = isInFlight ? (
+    <button
+      type="button"
+      onClick={onStop}
+      aria-label="Stop"
+      title="Stop"
+      className="composer-action stop"
+    >
+      <Square size={16} fill="currentColor" aria-hidden="true" />
+    </button>
+  ) : (
+    <button
+      type="submit"
+      disabled={!draft.trim()}
+      aria-label="Send"
+      title="Send"
+      className="composer-action send"
+    >
+      <Send size={16} aria-hidden="true" />
+    </button>
+  );
 
   const enterVim = () => {
     preVimDraftRef.current = draftRef.current;
@@ -336,9 +366,7 @@ const Composer = memo(function Composer({
             onAcceptAndExit={acceptAndExit}
             onDiscardAndExit={discardAndExit}
           />
-          <button type="submit" disabled={!draft.trim()}>
-            send
-          </button>
+          {actionButton}
         </form>
       </Suspense>
     );
@@ -355,14 +383,13 @@ const Composer = memo(function Composer({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
+              if (isInFlight) return;
               submit();
             }
           }}
           rows={2}
         />
-        <button type="submit" disabled={!draft.trim()}>
-          send
-        </button>
+        {actionButton}
       </form>
       <div className="chat-input-hint">
         <kbd>Ctrl+G</kbd> for vim mode

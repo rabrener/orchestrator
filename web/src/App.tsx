@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Settings } from "lucide-react";
 import { api, applyPreferences, connectWs, type Preferences } from "./api.js";
 import { TodoList } from "./components/TodoList.js";
 import { AgentList } from "./components/AgentList.js";
@@ -30,9 +31,8 @@ export function App() {
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
-  const [notifPermission, setNotifPermission] = useState<NotificationPermissionState>(
-    getPermissionState(),
-  );
+  const [notifPermission, setNotifPermission] =
+    useState<NotificationPermissionState>(getPermissionState());
   const [preferences, setPreferences] = useState<Preferences | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const wsConnectedRef = useRef(false);
@@ -57,9 +57,7 @@ export function App() {
         const title = todo?.title ?? "agent";
         notify({
           title:
-            e.payload.status === "asking"
-              ? `❓ ${title}`
-              : `✓ ${title} (idle)`,
+            e.payload.status === "asking" ? `❓ ${title}` : `✓ ${title} (idle)`,
           body:
             e.payload.status === "asking"
               ? "agent is asking for permission or input"
@@ -71,7 +69,8 @@ export function App() {
       prevStatusRef.current[e.payload.todo_id] = e.payload.status;
       setSessions((prev) => {
         const cur = prev[e.payload.todo_id];
-        const next = e.payload.meta ?? (cur ? { ...cur, status: e.payload.status } : null);
+        const next =
+          e.payload.meta ?? (cur ? { ...cur, status: e.payload.status } : null);
         if (!next) return prev;
         return { ...prev, [e.payload.todo_id]: next };
       });
@@ -110,7 +109,10 @@ export function App() {
         const last = list[list.length - 1];
         if (last && last.role === "codex" && last.repo === e.payload.repo) {
           const updated = { ...last, text: last.text + e.payload.chunk };
-          return { ...prev, [e.payload.todo_id]: [...list.slice(0, -1), updated] };
+          return {
+            ...prev,
+            [e.payload.todo_id]: [...list.slice(0, -1), updated],
+          };
         }
         const newMsg: ChatMessage = {
           id: `codex_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -132,7 +134,10 @@ export function App() {
         setPreferences(prefs);
       })
       .catch(() => undefined);
-    api.listTodos().then(setTodos).catch((err) => setError(String(err)));
+    api
+      .listTodos()
+      .then(setTodos)
+      .catch((err) => setError(String(err)));
     api
       .listSessions()
       .then(async (list) => {
@@ -155,10 +160,14 @@ export function App() {
     () => todos.find((t) => t.id === selectedTodoId) ?? null,
     [todos, selectedTodoId],
   );
-  const selectedSession = selectedTodoId ? sessions[selectedTodoId] ?? null : null;
-  const selectedMessages = selectedTodoId ? messages[selectedTodoId] ?? [] : [];
+  const selectedSession = selectedTodoId
+    ? (sessions[selectedTodoId] ?? null)
+    : null;
+  const selectedMessages = selectedTodoId
+    ? (messages[selectedTodoId] ?? [])
+    : [];
   const selectedComposerRestore = selectedTodoId
-    ? composerRestores[selectedTodoId] ?? null
+    ? (composerRestores[selectedTodoId] ?? null)
     : null;
 
   const onAddTodo = async (title: string) => {
@@ -181,12 +190,17 @@ export function App() {
   const onRenameTodo = async (id: string, title: string) => {
     const trimmed = title.trim();
     if (!trimmed) return;
-    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, title: trimmed } : t)));
+    setTodos((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, title: trimmed } : t)),
+    );
     try {
       await api.renameTodo(id, trimmed);
     } catch (err) {
       setError(String(err));
-      api.listTodos().then(setTodos).catch(() => undefined);
+      api
+        .listTodos()
+        .then(setTodos)
+        .catch(() => undefined);
     }
   };
 
@@ -240,7 +254,10 @@ export function App() {
     }
   };
 
-  const onResolvePermission = async (perm: PendingPermission, allow: boolean) => {
+  const onResolvePermission = async (
+    perm: PendingPermission,
+    allow: boolean,
+  ) => {
     if (!selectedTodoId) return;
     try {
       await api.resolvePermission(selectedTodoId, perm.request_id, allow);
@@ -304,7 +321,7 @@ export function App() {
           aria-label="Settings"
           title="Settings"
         >
-          ⚙
+          <Settings size={16} aria-hidden="true" />
         </button>
       </header>
       {settingsOpen && preferences && (
