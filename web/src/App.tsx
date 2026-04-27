@@ -4,6 +4,7 @@ import { api, applyPreferences, connectWs, type Preferences } from "./api.js";
 import { TodoList } from "./components/TodoList.js";
 import { AgentList } from "./components/AgentList.js";
 import { ChatPanel } from "./components/ChatPanel.js";
+import { ResizeHandle, usePersistedWidth } from "./components/ResizeHandle.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import {
   getPermissionState,
@@ -38,6 +39,19 @@ export function App() {
   const wsConnectedRef = useRef(false);
   const todosRef = useRef<Todo[]>([]);
   const prevStatusRef = useRef<Record<string, string>>({});
+
+  const [todoPaneWidth, adjustTodoPaneWidth] = usePersistedWidth(
+    "ui.todoPaneWidth",
+    280,
+    180,
+    600,
+  );
+  const [agentPaneWidth, adjustAgentPaneWidth] = usePersistedWidth(
+    "ui.agentPaneWidth",
+    320,
+    180,
+    700,
+  );
 
   useEffect(() => {
     todosRef.current = todos;
@@ -354,7 +368,12 @@ export function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
-      <div className="app-body">
+      <div
+        className="app-body"
+        style={{
+          gridTemplateColumns: `${todoPaneWidth}px 4px ${agentPaneWidth}px 4px minmax(0, 1fr)`,
+        }}
+      >
         <TodoList
           todos={todos}
           sessions={sessions}
@@ -366,12 +385,14 @@ export function App() {
           onStartSession={onStartSession}
           onReorder={onReorderTodos}
         />
+        <ResizeHandle onDelta={adjustTodoPaneWidth} ariaLabel="Resize todo pane" />
         <AgentList
           todos={todos}
           sessions={sessions}
           selectedId={selectedTodoId}
           onSelect={setSelectedTodoId}
         />
+        <ResizeHandle onDelta={adjustAgentPaneWidth} ariaLabel="Resize agents pane" />
         <ChatPanel
           todo={selectedTodo}
           session={selectedSession}

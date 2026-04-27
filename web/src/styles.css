@@ -235,21 +235,45 @@ textarea {
 .app-body {
   flex: 1;
   display: grid;
-  grid-template-columns: 280px 320px 1fr;
+  /* grid-template-columns is overridden inline by App via a state-driven value
+     so the user can drag the column separators. */
+  grid-template-columns: 280px 4px 320px 4px minmax(0, 1fr);
   overflow: hidden;
   min-height: 0;
+}
+
+.resize-handle {
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  user-select: none;
+  z-index: 1;
+}
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  background: var(--border);
+  transition:
+    width 80ms ease,
+    background 80ms ease;
+}
+.resize-handle:hover::before,
+.resize-handle.dragging::before {
+  width: 4px;
+  background: var(--accent);
 }
 
 .pane {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   background: var(--bg);
   min-height: 0;
   overflow: hidden;
-}
-.pane:last-child {
-  border-right: none;
 }
 .pane h2 {
   font-size: 11px;
@@ -297,7 +321,7 @@ textarea {
 }
 .todo-item {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
@@ -390,7 +414,7 @@ textarea {
 }
 .agent-item {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
