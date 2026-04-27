@@ -659,6 +659,21 @@ textarea { resize: vertical; }
   line-height: 1.45;
 }
 .chat-input button { align-self: flex-end; }
+.chat-input-hint {
+  padding: 2px 18px 6px;
+  font-size: 11px;
+  color: var(--text-mute);
+  letter-spacing: 0.2px;
+}
+.chat-input-hint kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  color: var(--text-dim);
+}
 
 /* ── Vim composer ──────────────────────────────────────────────────── */
 .chat-input-vim {

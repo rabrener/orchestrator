@@ -5,8 +5,10 @@ import { vim, Vim, getCM } from "@replit/codemirror-vim";
 interface Props {
   value: string;
   onChange: (value: string) => void;
-  onSubmit: () => void;
-  onExitVim: () => void;
+  /** :wq → copy buffer into chat input, exit vim (does NOT send) */
+  onAcceptAndExit: () => void;
+  /** :q! → discard buffer, restore pre-vim chat input, exit */
+  onDiscardAndExit: () => void;
 }
 
 const editorTheme = EditorView.theme({
@@ -41,39 +43,103 @@ const editorTheme = EditorView.theme({
   ".cm-panels-bottom": { borderTop: "1px solid var(--border)" },
 });
 
-let vimCommandsRegistered = false;
-function registerVimCommands(handlers: { submit: () => void; exit: () => void }): void {
-  // Vim's command map is global; rebind handlers each mount via a ref-style dispatch.
-  vimCommandsRegistered = true;
-  Vim.defineEx("send", "send", () => handlers.submit());
-  Vim.defineEx("w", "w", () => handlers.submit());
-  Vim.defineEx("wq", "wq", () => handlers.submit());
-  Vim.defineEx("q", "q", () => handlers.exit());
+// openNotification's TS signature insists on a Node. Wrap the string for it.
+function showVimMessage(
+  cm: ReturnType<typeof getCM> | null | undefined,
+  text: string,
+  duration: number,
+): void {
+  if (!cm) return;
+  const node = document.createElement("span");
+  node.textContent = text;
+  cm.openNotification(node, { bottom: true, duration });
 }
 
-export function VimComposer({ value, onChange, onSubmit, onExitVim }: Props) {
-  const ref = useRef<ReactCodeMirrorRef>(null);
-  const submitRef = useRef(onSubmit);
-  const exitRef = useRef(onExitVim);
-  submitRef.current = onSubmit;
-  exitRef.current = onExitVim;
+// Vim's command map is global; bind once and dispatch into refs that hold
+// the latest mount's handlers so command callbacks always hit the live state.
+type VimHandlers = {
+  accept: () => void;
+  discard: () => void;
+  getValue: () => string;
+  getCM: () => ReturnType<typeof getCM> | null;
+};
+const liveHandlers: { current: VimHandlers | null } = { current: null };
+let vimCommandsRegistered = false;
+function ensureVimCommandsRegistered(): void {
+  if (vimCommandsRegistered) return;
+  vimCommandsRegistered = true;
 
-  useEffect(() => {
-    if (!vimCommandsRegistered) {
-      registerVimCommands({
-        submit: () => submitRef.current(),
-        exit: () => exitRef.current(),
-      });
+  // :w — explicit no-op. Inserting from vim into the chat input must be intentional.
+  Vim.defineEx("w", "w", () => {
+    showVimMessage(
+      liveHandlers.current?.getCM(),
+      "use :wq to copy buffer into chat input, or click send",
+      2500,
+    );
+  });
+
+  // :wq — populate chat input with the vim buffer and exit vim. Does NOT send.
+  Vim.defineEx("wq", "wq", () => liveHandlers.current?.accept());
+
+  // :q — exit only if buffer is empty. Otherwise show vim's classic error.
+  Vim.defineEx("q", "q", () => {
+    const h = liveHandlers.current;
+    if (!h) return;
+    if (h.getValue().trim() === "") {
+      h.discard();
+    } else {
+      showVimMessage(
+        h.getCM(),
+        "E37: No write since last change (add ! to override)",
+        3000,
+      );
     }
-  }, []);
+  });
+
+  // :q! — discard the buffer and restore the chat input to its pre-vim state.
+  Vim.defineEx("q!", "q!", () => liveHandlers.current?.discard());
+}
+
+export function VimComposer({ value, onChange, onAcceptAndExit, onDiscardAndExit }: Props) {
+  const ref = useRef<ReactCodeMirrorRef>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   useEffect(() => {
-    // Auto-focus on mount and drop straight into insert mode for typing flow.
-    const view = ref.current?.view;
-    if (!view) return;
-    view.focus();
-    const cm = getCM(view);
-    if (cm) Vim.handleKey(cm, "i", "");
+    ensureVimCommandsRegistered();
+    liveHandlers.current = {
+      accept: () => onAcceptAndExit(),
+      discard: () => onDiscardAndExit(),
+      getValue: () => valueRef.current,
+      getCM: () => (ref.current?.view ? getCM(ref.current.view) : null),
+    };
+    return () => {
+      if (liveHandlers.current && liveHandlers.current.accept === onAcceptAndExit) {
+        liveHandlers.current = null;
+      }
+    };
+  }, [onAcceptAndExit, onDiscardAndExit]);
+
+  useEffect(() => {
+    // Drop straight into insert mode after the editor mounts. The autoFocus
+    // prop on <CodeMirror> handles the actual focus; we just retry until the
+    // view is available so `i` lands in the right place.
+    let cancelled = false;
+    const tryEnterInsert = () => {
+      if (cancelled) return;
+      const view = ref.current?.view;
+      if (!view) {
+        requestAnimationFrame(tryEnterInsert);
+        return;
+      }
+      view.focus();
+      const cm = getCM(view);
+      if (cm) Vim.handleKey(cm, "i", "");
+    };
+    requestAnimationFrame(tryEnterInsert);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -81,19 +147,31 @@ export function VimComposer({ value, onChange, onSubmit, onExitVim }: Props) {
       <div className="vim-composer-bar">
         <span className="vim-composer-tag">VIM</span>
         <span className="vim-composer-hint">
-          <kbd>:w</kbd> send · <kbd>:q</kbd> exit · <kbd>Ctrl+G</kbd> toggle
+          <kbd>:wq</kbd> accept into chat · <kbd>:q!</kbd> discard
         </span>
       </div>
       <CodeMirror
         ref={ref}
         value={value}
         onChange={onChange}
+        autoFocus
         extensions={[vim(), editorTheme, EditorView.lineWrapping]}
         basicSetup={{
           lineNumbers: false,
           foldGutter: false,
           highlightActiveLine: false,
           highlightActiveLineGutter: false,
+          // Disable CodeMirror's built-in keymaps that collide with vim
+          // bindings (e.g. Ctrl+[ → indentLess, Ctrl+] → indentMore,
+          // Ctrl+A → selectAll, Ctrl+Z → undo). Vim owns these.
+          defaultKeymap: false,
+          historyKeymap: false,
+          searchKeymap: false,
+          completionKeymap: false,
+          foldKeymap: false,
+          lintKeymap: false,
+          closeBracketsKeymap: false,
+          closeBrackets: false,
         }}
         height="100%"
         className="vim-cm"

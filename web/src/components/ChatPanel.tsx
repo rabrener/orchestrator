@@ -154,6 +154,11 @@ const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  // Snapshot of the chat input value at the moment vim mode was entered, so
+  // :q! / :q-when-empty can restore it cleanly.
+  const preVimDraftRef = useRef("");
+  const vimModeRef = useRef(vimMode);
+  vimModeRef.current = vimMode;
 
   const autoSize = () => {
     const el = textareaRef.current;
@@ -171,7 +176,7 @@ const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => 
     if (!text) return;
     onSend(text);
     setDraft("");
-    if (vimMode) setVimMode(false);
+    if (vimModeRef.current) setVimMode(false);
   };
 
   const onFormSubmit = (e: React.FormEvent) => {
@@ -179,17 +184,49 @@ const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => 
     submit();
   };
 
-  // Ctrl+G toggles vim mode whenever the chat panel is visible.
+  const enterVim = () => {
+    preVimDraftRef.current = draftRef.current;
+    setVimMode(true);
+  };
+
+  // :wq / Ctrl+G-from-vim — buffer is already mirrored into draft via
+  // VimComposer.onChange, so just leave vim and let the textarea show it.
+  const acceptAndExit = () => setVimMode(false);
+
+  // :q! — restore the textarea to whatever it held before vim was entered.
+  const discardAndExit = () => {
+    setDraft(preVimDraftRef.current);
+    setVimMode(false);
+  };
+
+  // Ctrl+G enters vim mode. Inside vim use :wq / :q! to leave.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && (e.key === "g" || e.key === "G")) {
+        if (vimModeRef.current) return;
         e.preventDefault();
-        setVimMode((v) => !v);
+        enterVim();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // After leaving vim, return focus to the textarea so the user can keep
+  // editing or hit Enter to send without an extra click.
+  const wasInVimRef = useRef(false);
+  useEffect(() => {
+    if (wasInVimRef.current && !vimMode) {
+      // Textarea just remounted; defer one frame so the ref is wired up.
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      });
+    }
+    wasInVimRef.current = vimMode;
+  }, [vimMode]);
 
   if (vimMode) {
     return (
@@ -198,8 +235,8 @@ const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => 
           <VimComposer
             value={draft}
             onChange={setDraft}
-            onSubmit={submit}
-            onExitVim={() => setVimMode(false)}
+            onAcceptAndExit={acceptAndExit}
+            onDiscardAndExit={discardAndExit}
           />
           <button type="submit" disabled={!draft.trim()}>
             send
@@ -210,24 +247,29 @@ const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => 
   }
 
   return (
-    <form className="chat-input" onSubmit={onFormSubmit}>
-      <textarea
-        ref={textareaRef}
-        placeholder="message… (Ctrl+G for vim)"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        rows={2}
-      />
-      <button type="submit" disabled={!draft.trim()}>
-        send
-      </button>
-    </form>
+    <>
+      <form className="chat-input" onSubmit={onFormSubmit}>
+        <textarea
+          ref={textareaRef}
+          placeholder="message…"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          rows={2}
+        />
+        <button type="submit" disabled={!draft.trim()}>
+          send
+        </button>
+      </form>
+      <div className="chat-input-hint">
+        <kbd>Ctrl+G</kbd> for vim mode
+      </div>
+    </>
   );
 });
 
