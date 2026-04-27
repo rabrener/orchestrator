@@ -650,7 +650,14 @@ textarea { resize: vertical; }
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
-.chat-input textarea { flex: 1; }
+.chat-input textarea {
+  flex: 1;
+  resize: none;
+  overflow-y: auto;
+  min-height: 56px;
+  max-height: 240px;
+  line-height: 1.45;
+}
 .chat-input button { align-self: flex-end; }
 
 .chat-footer {

@@ -146,6 +146,19 @@ export function ChatPanel({
 
 const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => void }) {
   const [draft, setDraft] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const autoSize = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  useEffect(() => {
+    autoSize();
+  }, [draft]);
+
   const submit = (e?: React.FormEvent) => {
     e?.preventDefault();
     const text = draft.trim();
@@ -153,9 +166,11 @@ const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => 
     onSend(text);
     setDraft("");
   };
+
   return (
     <form className="chat-input" onSubmit={submit}>
       <textarea
+        ref={textareaRef}
         placeholder="message…"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
