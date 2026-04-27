@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ModePicker } from "./ModePicker.js";
@@ -9,6 +9,10 @@ import type {
   SessionMeta,
   Todo,
 } from "../types.js";
+
+const VimComposer = lazy(() =>
+  import("./VimComposer.js").then((m) => ({ default: m.VimComposer })),
+);
 
 type RenderItem =
   | { kind: "message"; message: ChatMessage }
@@ -146,7 +150,10 @@ export function ChatPanel({
 
 const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => void }) {
   const [draft, setDraft] = useState("");
+  const [vimMode, setVimMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   const autoSize = () => {
     const el = textareaRef.current;
@@ -156,22 +163,57 @@ const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => 
   };
 
   useEffect(() => {
-    autoSize();
-  }, [draft]);
+    if (!vimMode) autoSize();
+  }, [draft, vimMode]);
 
-  const submit = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const text = draft.trim();
+  const submit = () => {
+    const text = draftRef.current.trim();
     if (!text) return;
     onSend(text);
     setDraft("");
+    if (vimMode) setVimMode(false);
   };
 
+  const onFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    submit();
+  };
+
+  // Ctrl+G toggles vim mode whenever the chat panel is visible.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && (e.key === "g" || e.key === "G")) {
+        e.preventDefault();
+        setVimMode((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  if (vimMode) {
+    return (
+      <Suspense fallback={<div className="chat-input vim-loading">loading vim editor…</div>}>
+        <form className="chat-input chat-input-vim" onSubmit={onFormSubmit}>
+          <VimComposer
+            value={draft}
+            onChange={setDraft}
+            onSubmit={submit}
+            onExitVim={() => setVimMode(false)}
+          />
+          <button type="submit" disabled={!draft.trim()}>
+            send
+          </button>
+        </form>
+      </Suspense>
+    );
+  }
+
   return (
-    <form className="chat-input" onSubmit={submit}>
+    <form className="chat-input" onSubmit={onFormSubmit}>
       <textarea
         ref={textareaRef}
-        placeholder="message…"
+        placeholder="message… (Ctrl+G for vim)"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
