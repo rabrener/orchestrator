@@ -7,8 +7,9 @@ interface Props {
   onChange: (value: string) => void;
   /** :wq → copy buffer into chat input, exit vim (does NOT send) */
   onAcceptAndExit: () => void;
-  /** :q! → discard buffer, restore pre-vim chat input, exit */
-  onDiscardAndExit: () => void;
+  /** :q! → discard buffer changes since last :w and exit. The argument is the
+   * last-saved buffer state (== entry value if :w was never run). */
+  onDiscardAndExit: (restoreText: string) => void;
 }
 
 const editorTheme = EditorView.theme({
@@ -60,7 +61,8 @@ function showVimMessage(
 type VimHandlers = {
   accept: () => void;
   discard: () => void;
-  getValue: () => string;
+  save: () => void;
+  isDirty: () => boolean;
   getCM: () => ReturnType<typeof getCM> | null;
 };
 const liveHandlers: { current: VimHandlers | null } = { current: null };
@@ -69,27 +71,30 @@ function ensureVimCommandsRegistered(): void {
   if (vimCommandsRegistered) return;
   vimCommandsRegistered = true;
 
-  // :w — explicit no-op. Inserting from vim into the chat input must be intentional.
+  // :w — record the current buffer as the last-saved state. The chat input
+  // isn't touched (use :wq for that), but a subsequent :q! will revert to
+  // this snapshot rather than the pre-vim text.
   Vim.defineEx("w", "w", () => {
-    showVimMessage(
-      liveHandlers.current?.getCM(),
-      "use :wq to copy buffer into chat input, or click send",
-      2500,
-    );
+    const h = liveHandlers.current;
+    if (!h) return;
+    h.save();
+    showVimMessage(h.getCM(), "buffer saved · :wq inserts into chat input", 2000);
   });
 
-  // :wq — populate chat input with the vim buffer and exit vim. Does NOT send.
-  // :wq! is accepted as a synonym (vim parses the bang as an argument).
-  Vim.defineEx("wq", "wq", () => liveHandlers.current?.accept());
+  // :wq / :wqall — populate chat input with the vim buffer and exit vim.
+  // Does NOT send. The bang variants (:wq!, :wqall!) are accepted because
+  // vim's parser strips the bang into params.argString.
+  const acceptHandler = () => liveHandlers.current?.accept();
+  Vim.defineEx("wq", "wq", acceptHandler);
+  Vim.defineEx("wqall", "wqa", acceptHandler);
 
-  // :q / :q! — vim's parser strips the bang into params.argString, so a
-  // single registration covers both. Bang ⇒ force-discard, no bang ⇒ only
-  // discard when the buffer is empty.
-  Vim.defineEx("q", "q", (_cm: unknown, params: { argString?: string } = {}) => {
+  // :q / :q! / :qall / :qall! — bang ⇒ force-discard, no bang ⇒ only discard
+  // when the buffer hasn't changed since the last :w (or vim entry).
+  const quitHandler = (_cm: unknown, params: { argString?: string } = {}) => {
     const h = liveHandlers.current;
     if (!h) return;
     const bang = (params.argString ?? "").trim().startsWith("!");
-    if (bang || h.getValue().trim() === "") {
+    if (bang || !h.isDirty()) {
       h.discard();
     } else {
       showVimMessage(
@@ -98,20 +103,29 @@ function ensureVimCommandsRegistered(): void {
         3000,
       );
     }
-  });
+  };
+  Vim.defineEx("q", "q", quitHandler);
+  Vim.defineEx("qall", "qa", quitHandler);
 }
 
 export function VimComposer({ value, onChange, onAcceptAndExit, onDiscardAndExit }: Props) {
   const ref = useRef<ReactCodeMirrorRef>(null);
   const valueRef = useRef(value);
   valueRef.current = value;
+  // Tracks the last :w snapshot. Initialized to the entry value so :q exits
+  // cleanly when the user hasn't edited anything yet, and so :q! restores
+  // the entry value when :w was never run.
+  const lastSavedRef = useRef(value);
 
   useEffect(() => {
     ensureVimCommandsRegistered();
     liveHandlers.current = {
       accept: () => onAcceptAndExit(),
-      discard: () => onDiscardAndExit(),
-      getValue: () => valueRef.current,
+      discard: () => onDiscardAndExit(lastSavedRef.current),
+      save: () => {
+        lastSavedRef.current = valueRef.current;
+      },
+      isDirty: () => valueRef.current !== lastSavedRef.current,
       getCM: () => (ref.current?.view ? getCM(ref.current.view) : null),
     };
     return () => {

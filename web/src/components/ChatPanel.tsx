@@ -240,9 +240,6 @@ const Composer = memo(function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
-  // Snapshot of the chat input value at the moment vim mode was entered, so
-  // :q! / :q-when-empty can restore it cleanly.
-  const preVimDraftRef = useRef("");
   const vimModeRef = useRef(vimMode);
   vimModeRef.current = vimMode;
 
@@ -313,7 +310,6 @@ const Composer = memo(function Composer({
   );
 
   const enterVim = () => {
-    preVimDraftRef.current = draftRef.current;
     setVimMode(true);
   };
 
@@ -321,9 +317,10 @@ const Composer = memo(function Composer({
   // VimComposer.onChange, so just leave vim and let the textarea show it.
   const acceptAndExit = () => setVimMode(false);
 
-  // :q! — restore the textarea to whatever it held before vim was entered.
-  const discardAndExit = () => {
-    setDraft(preVimDraftRef.current);
+  // :q / :q! — VimComposer hands us the last :w snapshot (or the entry value
+  // if :w was never run). Restore the textarea to that and exit.
+  const discardAndExit = (restoreText: string) => {
+    setDraft(restoreText);
     setVimMode(false);
   };
 
