@@ -128,6 +128,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     const session = await sessionManager.start(
       req.params.id,
+      todo.title,
       todo.session_id ?? undefined,
     );
     const messages = await sessionManager.getTranscript(req.params.id);

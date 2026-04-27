@@ -9,7 +9,7 @@ import { InputQueue } from "./input-queue.js";
 import { appendMessage, readTranscript } from "./transcript.js";
 import { archiveSession, listAllMetas, readMeta, writeMeta } from "./session-meta.js";
 import { readPreferences } from "./preferences.js";
-import { setTodoSessionId } from "./store.js";
+import { listTodos, setTodoSessionId } from "./store.js";
 import type {
   ChatMessage,
   PendingPermission,
@@ -48,6 +48,7 @@ type Listener = {
 
 class ActiveSession {
   todoId: string;
+  taskTitle: string;
   sessionId = "";
   status: SessionStatus = "idle";
   permissionMode: PermissionMode = "default";
@@ -72,14 +73,22 @@ class ActiveSession {
   private permissionResolvers = new Map<string, (allow: boolean) => void>();
   private loopPromise: Promise<void> | null = null;
 
-  constructor(todoId: string, cwd: string, mode: PermissionMode = "default") {
+  constructor(todoId: string, cwd: string, taskTitle: string, mode: PermissionMode = "default") {
     this.todoId = todoId;
+    this.taskTitle = taskTitle;
     this.cwd = cwd;
     this.permissionMode = mode;
     this.inputQueue = new InputQueue<SDKUserMessage>();
   }
 
   start(listener: Listener, resumeSessionId?: string): void {
+    const systemPrompt: { type: "preset"; preset: "claude_code"; append?: string } = {
+      type: "preset",
+      preset: "claude_code",
+    };
+    if (this.taskTitle) {
+      systemPrompt.append = `This session is dedicated to the following task from the orchestrator todo list: "${this.taskTitle}"`;
+    }
     this.q = query({
       prompt: this.inputQueue,
       options: {
@@ -87,7 +96,7 @@ class ActiveSession {
         resume: resumeSessionId,
         permissionMode: this.permissionMode,
         allowedTools: ALLOWED_READ_TOOLS,
-        systemPrompt: { type: "preset", preset: "claude_code" },
+        systemPrompt,
         // Required gate so users can opt into 'bypassPermissions' via the dropdown.
         // Does not auto-enable bypass — only permits the mode switch.
         allowDangerouslySkipPermissions: true,
@@ -352,7 +361,7 @@ class SessionManager {
     return Array.from(this.sessions.values());
   }
 
-  async start(todoId: string, resumeSessionId?: string): Promise<ActiveSession> {
+  async start(todoId: string, taskTitle: string, resumeSessionId?: string): Promise<ActiveSession> {
     if (this.sessions.has(todoId)) {
       return this.sessions.get(todoId)!;
     }
@@ -361,7 +370,7 @@ class SessionManager {
     const prefs = await readPreferences().catch(() => null);
     const mode: PermissionMode =
       existingMeta?.permission_mode ?? prefs?.default_permission_mode ?? "default";
-    const session = new ActiveSession(todoId, JINNI_ROOT, mode);
+    const session = new ActiveSession(todoId, JINNI_ROOT, taskTitle, mode);
     if (resumeSessionId) session.sessionId = resumeSessionId;
     this.sessions.set(todoId, session);
     session.start(this.listener, resumeSessionId);
@@ -399,12 +408,13 @@ class SessionManager {
   }
 
   async resumeAll(): Promise<void> {
-    const metas = await listAllMetas();
+    const [metas, todos] = await Promise.all([listAllMetas(), listTodos()]);
+    const titleById = new Map(todos.map((t) => [t.id, t.title] as const));
     for (const meta of metas) {
       if (meta.status === "done" || meta.status === "error") continue;
       if (this.sessions.has(meta.todo_id)) continue;
       try {
-        await this.start(meta.todo_id, meta.session_id);
+        await this.start(meta.todo_id, titleById.get(meta.todo_id) ?? "", meta.session_id);
       } catch (err) {
         console.error(`resume failed for ${meta.todo_id}`, err);
       }
