@@ -112,13 +112,9 @@ class ActiveSession {
     this.isLoopActive = true;
     this.loopPromise = this.consume(listener)
       .catch((err) => {
-        // The SDK throws out of its async iterator when interrupt() aborts the
-        // in-flight request. That isn't an error from the user's perspective, so
-        // swallow it — consume() has already emitted the "stopped" system msg.
-        if (this.stopping) {
-          console.log(`[session ${this.todoId}] iterator threw during stop (suppressed): ${String(err)}`);
-          return;
-        }
+        // close() shuts the input queue which terminates the SDK iterator —
+        // a soft stop via q.interrupt() alone does NOT throw here.
+        if (this.stopping) return;
         console.error(`session ${this.todoId} loop error`, err);
         this.setStatus("error", listener);
         listener.onMessage(this.todoId, this.makeMessage("system", `[error] ${String(err)}`));
@@ -184,9 +180,6 @@ class ActiveSession {
             // User clicked Stop. The SDK aborts its in-flight request and
             // surfaces it as `error_during_execution`; that's expected, not
             // an error to surface.
-            console.log(
-              `[session ${this.todoId}] sdk result aborted by user stop (subtype=${anyMsg.subtype})`,
-            );
             const cm = this.makeMessage("system", "⏹ stopped — agent was interrupted");
             await appendMessage(this.todoId, cm);
             listener.onMessage(this.todoId, cm);
@@ -258,17 +251,17 @@ class ActiveSession {
   }
 
   async sendUserMessage(text: string, listener: Listener): Promise<void> {
-    // If a stop is winding down, wait for the SDK iterator to actually finish
-    // before deciding whether to push or respawn.
-    if (this.stopping && this.loopPromise) {
-      await this.loopPromise.catch(() => undefined);
-    }
-    // The previous turn ended (clean stop or post-interrupt). Respawn the
-    // query with `resume` on the same conversation thread, on a fresh queue.
+    // After q.interrupt(), the SDK yields the abort result and then keeps
+    // awaiting the next user message on the same query — the iterator does
+    // NOT throw. So if the loop is still alive we just clear the stopping
+    // flag (so the next "result" is handled normally) and push.
+    // Only respawn if the loop has actually ended (real error or hard close).
     if (!this.isLoopActive) {
       this.inputQueue = new InputQueue<SDKUserMessage>();
       this.stopping = false;
       this.start(listener, this.sessionId || undefined);
+    } else if (this.stopping) {
+      this.stopping = false;
     }
 
     const cm: ChatMessage = {
@@ -387,8 +380,8 @@ class SessionManager {
       session.lastUserText = "";
       if (opts.keepAlive && !opts.archive) {
         // Soft stop — interrupt the in-flight turn but keep the session in
-        // the manager map so further /message calls can queue a new turn
-        // (sendUserMessage will respawn the SDK query lazily).
+        // the manager map so further /message calls can queue a new turn on
+        // the same SDK query.
         await session.interrupt();
       } else {
         await session.close();
