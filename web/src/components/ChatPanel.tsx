@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ModePicker } from "./ModePicker.js";
@@ -59,7 +59,6 @@ export function ChatPanel({
   onStop,
   onStartSession,
 }: Props) {
-  const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const renderItems = useMemo(() => groupMessages(messages), [messages]);
 
@@ -76,14 +75,6 @@ export function ChatPanel({
       </section>
     );
   }
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = draft.trim();
-    if (!text) return;
-    onSendMessage(text);
-    setDraft("");
-  };
 
   return (
     <section className="pane chat-pane">
@@ -129,23 +120,7 @@ export function ChatPanel({
             )}
           </div>
 
-          <form className="chat-input" onSubmit={submit}>
-            <textarea
-              placeholder="message…"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  submit(e as unknown as React.FormEvent);
-                }
-              }}
-              rows={2}
-            />
-            <button type="submit" disabled={!draft.trim()}>
-              send
-            </button>
-          </form>
+          <Composer onSend={onSendMessage} />
 
           <footer className="chat-footer">
             <ModePicker
@@ -169,59 +144,107 @@ export function ChatPanel({
   );
 }
 
-function MessageRow({ message }: { message: ChatMessage }) {
-  const renderAsMarkdown = message.role === "assistant" || message.role === "system";
+const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => void }) {
+  const [draft, setDraft] = useState("");
+  const submit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const text = draft.trim();
+    if (!text) return;
+    onSend(text);
+    setDraft("");
+  };
   return (
-    <div className={`msg msg-${message.role}`}>
-      <div className="msg-meta">
-        {message.role}
-        {message.tool_name ? `: ${message.tool_name}` : ""}
-        {message.repo ? ` (${message.repo})` : ""}
-      </div>
-      {renderAsMarkdown ? (
-        <div className="msg-md">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
-        </div>
-      ) : (
-        <pre className="msg-text">{message.text}</pre>
-      )}
-    </div>
-  );
-}
-
-function ToolRunCard({ tools }: { tools: ChatMessage[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const lastTool = tools[tools.length - 1];
-  const summary =
-    tools.length === 1
-      ? lastTool.tool_name ?? "tool"
-      : `${lastTool.tool_name ?? "tool"} (+${tools.length - 1} more)`;
-  return (
-    <div className="msg msg-tool tool-run">
-      <button
-        type="button"
-        className="tool-run-header"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-      >
-        <span className="tool-run-chevron">{expanded ? "▾" : "▸"}</span>
-        <span className="tool-run-icon">🔧</span>
-        <span className="tool-run-summary">{summary}</span>
-        <span className="tool-run-count">{tools.length} call{tools.length === 1 ? "" : "s"}</span>
+    <form className="chat-input" onSubmit={submit}>
+      <textarea
+        placeholder="message…"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        rows={2}
+      />
+      <button type="submit" disabled={!draft.trim()}>
+        send
       </button>
-      {expanded && (
-        <ol className="tool-run-list">
-          {tools.map((t) => (
-            <li key={t.id} className="tool-run-item">
-              <div className="tool-run-item-name">{t.tool_name ?? "tool"}</div>
-              <pre className="tool-run-item-input">{t.text}</pre>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
+    </form>
   );
-}
+});
+
+const RenderedMarkdown = memo(function RenderedMarkdown({ source }: { source: string }) {
+  return <ReactMarkdown remarkPlugins={[remarkGfm]}>{source}</ReactMarkdown>;
+});
+
+const MessageRow = memo(
+  function MessageRow({ message }: { message: ChatMessage }) {
+    const renderAsMarkdown = message.role === "assistant" || message.role === "system";
+    return (
+      <div className={`msg msg-${message.role}`}>
+        <div className="msg-meta">
+          {message.role}
+          {message.tool_name ? `: ${message.tool_name}` : ""}
+          {message.repo ? ` (${message.repo})` : ""}
+        </div>
+        {renderAsMarkdown ? (
+          <div className="msg-md">
+            <RenderedMarkdown source={message.text} />
+          </div>
+        ) : (
+          <pre className="msg-text">{message.text}</pre>
+        )}
+      </div>
+    );
+  },
+  (a, b) =>
+    a.message.id === b.message.id &&
+    a.message.text === b.message.text &&
+    a.message.role === b.message.role &&
+    a.message.tool_name === b.message.tool_name &&
+    a.message.repo === b.message.repo,
+);
+
+const ToolRunCard = memo(
+  function ToolRunCard({ tools }: { tools: ChatMessage[] }) {
+    const [expanded, setExpanded] = useState(false);
+    const lastTool = tools[tools.length - 1];
+    const summary =
+      tools.length === 1
+        ? lastTool.tool_name ?? "tool"
+        : `${lastTool.tool_name ?? "tool"} (+${tools.length - 1} more)`;
+    return (
+      <div className="msg msg-tool tool-run">
+        <button
+          type="button"
+          className="tool-run-header"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          <span className="tool-run-chevron">{expanded ? "▾" : "▸"}</span>
+          <span className="tool-run-icon">🔧</span>
+          <span className="tool-run-summary">{summary}</span>
+          <span className="tool-run-count">{tools.length} call{tools.length === 1 ? "" : "s"}</span>
+        </button>
+        {expanded && (
+          <ol className="tool-run-list">
+            {tools.map((t) => (
+              <li key={t.id} className="tool-run-item">
+                <div className="tool-run-item-name">{t.tool_name ?? "tool"}</div>
+                <pre className="tool-run-item-input">{t.text}</pre>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    );
+  },
+  (a, b) =>
+    a.tools.length === b.tools.length &&
+    a.tools[0]?.id === b.tools[0]?.id &&
+    a.tools[a.tools.length - 1]?.id === b.tools[b.tools.length - 1]?.id,
+);
 
 function PermissionPrompt({
   perm,
