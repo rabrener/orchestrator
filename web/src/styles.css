@@ -886,6 +886,17 @@ textarea {
   text-align: center;
 }
 
+/* Codemirror vim ex/search panel: the global `input { padding: 6px 10px }`
+   rule otherwise pushes the typed text 10px right of the leading ":" / "/"
+   prompt. Move that padding from the input to the wrapper span so the prompt
+   and typed text stay flush. */
+.cm-vim-panel > span {
+  padding: 6px 10px;
+}
+.cm-vim-panel input {
+  padding: 0;
+}
+
 .chat-footer {
   display: flex;
   align-items: center;
