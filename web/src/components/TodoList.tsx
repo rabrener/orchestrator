@@ -11,7 +11,10 @@ interface Props {
   onRemove: (id: string) => void;
   onComplete: (id: string) => void;
   onStartSession: (id: string) => void;
+  onReorder: (orderedActiveIds: string[]) => void;
 }
+
+type DropEdge = "top" | "bottom";
 
 export function TodoList({
   todos,
@@ -22,8 +25,11 @@ export function TodoList({
   onRemove,
   onComplete,
   onStartSession,
+  onReorder,
 }: Props) {
   const [draft, setDraft] = useState("");
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; edge: DropEdge } | null>(null);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +41,39 @@ export function TodoList({
 
   const active = todos.filter((t) => !t.completed_at);
   const done = todos.filter((t) => t.completed_at);
+
+  const handleDragOver = (e: React.DragEvent<HTMLLIElement>, id: string) => {
+    if (!dragId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const rect = e.currentTarget.getBoundingClientRect();
+    const edge: DropEdge = e.clientY < rect.top + rect.height / 2 ? "top" : "bottom";
+    if (dropTarget?.id !== id || dropTarget.edge !== edge) {
+      setDropTarget({ id, edge });
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLLIElement>, targetId: string) => {
+    e.preventDefault();
+    if (!dragId || dragId === targetId) {
+      setDragId(null);
+      setDropTarget(null);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const edge: DropEdge = e.clientY < rect.top + rect.height / 2 ? "top" : "bottom";
+    const ids = active.map((t) => t.id).filter((id) => id !== dragId);
+    const targetIdx = ids.indexOf(targetId);
+    const insertAt = edge === "top" ? targetIdx : targetIdx + 1;
+    ids.splice(insertAt, 0, dragId);
+    setDragId(null);
+    setDropTarget(null);
+    // Only call onReorder if the order actually changed.
+    const original = active.map((t) => t.id);
+    if (ids.length !== original.length || ids.some((v, i) => v !== original[i])) {
+      onReorder(ids);
+    }
+  };
 
   return (
     <aside className="pane todo-pane">
@@ -60,11 +99,42 @@ export function TodoList({
         {active.map((t) => {
           const session = sessions[t.id];
           const hasAgent = !!session;
+          const isDragging = dragId === t.id;
+          const isDropTop = dropTarget?.id === t.id && dropTarget.edge === "top";
+          const isDropBottom = dropTarget?.id === t.id && dropTarget.edge === "bottom";
+          const cls = [
+            "todo-item",
+            selectedId === t.id ? "selected" : "",
+            isDragging ? "dragging" : "",
+            isDropTop ? "drop-above" : "",
+            isDropBottom ? "drop-below" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
           return (
             <li
               key={t.id}
-              className={`todo-item ${selectedId === t.id ? "selected" : ""}`}
+              className={cls}
               onClick={() => onSelect(t.id)}
+              draggable
+              onDragStart={(e) => {
+                setDragId(t.id);
+                e.dataTransfer.effectAllowed = "move";
+                // Firefox needs data set on the dataTransfer for drag to start.
+                e.dataTransfer.setData("text/plain", t.id);
+              }}
+              onDragEnd={() => {
+                setDragId(null);
+                setDropTarget(null);
+              }}
+              onDragOver={(e) => handleDragOver(e, t.id)}
+              onDragLeave={(e) => {
+                // Only clear if leaving the item entirely (not crossing into a child).
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  if (dropTarget?.id === t.id) setDropTarget(null);
+                }
+              }}
+              onDrop={(e) => handleDrop(e, t.id)}
             >
               <button
                 className="todo-check"

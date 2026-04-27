@@ -1,5 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { addTodo, completeTodo, listTodos, removeTodo, renameTodo } from "./store.js";
+import {
+  addTodo,
+  completeTodo,
+  listTodos,
+  removeTodo,
+  renameTodo,
+  reorderTodos,
+} from "./store.js";
 import { sessionManager } from "./session-manager.js";
 import { runCodexReview } from "./codex-review.js";
 import { broadcast } from "./ws.js";
@@ -57,6 +64,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       return { todo: updated };
     },
   );
+
+  app.post<{ Body: { ids?: unknown } }>("/api/todos/reorder", async (req, reply) => {
+    const ids = req.body?.ids;
+    if (!Array.isArray(ids) || !ids.every((x) => typeof x === "string")) {
+      reply.code(400);
+      return { error: "ids_array_required" };
+    }
+    const todos = await reorderTodos(ids as string[]);
+    broadcast({ type: "todos.updated", payload: todos });
+    return { todos };
+  });
 
   app.delete<{ Params: { id: string } }>("/api/todos/:id", async (req, reply) => {
     const removed = await removeTodo(req.params.id);

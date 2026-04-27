@@ -32,6 +32,11 @@ export const api = {
     jsonFetch<{ todo: Todo }>(`/api/todos/${id}/complete`, { method: "POST" }).then(
       (r) => r.todo,
     ),
+  reorderTodos: (ids: string[]) =>
+    jsonFetch<{ todos: Todo[] }>("/api/todos/reorder", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }).then((r) => r.todos),
 
   startSession: (todoId: string) =>
     jsonFetch<{ session: SessionMeta; messages?: ChatMessage[] }>(

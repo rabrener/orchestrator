@@ -117,6 +117,30 @@ export async function completeTodo(id: string): Promise<Todo | null> {
   return updated;
 }
 
+export async function reorderTodos(orderedIds: string[]): Promise<Todo[]> {
+  let result: Todo[] = [];
+  await mutate((file) => {
+    const byId = new Map(file.todos.map((t) => [t.id, t]));
+    const seen = new Set<string>();
+    const reordered: Todo[] = [];
+    for (const id of orderedIds) {
+      const todo = byId.get(id);
+      if (todo && !seen.has(id)) {
+        reordered.push(todo);
+        seen.add(id);
+      }
+    }
+    // Preserve any todos the client didn't enumerate (e.g. completed items
+    // the UI doesn't drag) by appending them in their original relative order.
+    for (const todo of file.todos) {
+      if (!seen.has(todo.id)) reordered.push(todo);
+    }
+    file.todos = reordered;
+    result = reordered;
+  });
+  return result;
+}
+
 export async function setTodoSessionId(todoId: string, sessionId: string | null): Promise<void> {
   await mutate((file) => {
     const todo = file.todos.find((t) => t.id === todoId);

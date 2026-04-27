@@ -213,6 +213,29 @@ export function App() {
     }
   };
 
+  const onReorderTodos = async (orderedActiveIds: string[]) => {
+    // Optimistic: reorder active todos in-place, keep completed where they are.
+    const prevTodos = todos;
+    const byId = new Map(todos.map((t) => [t.id, t]));
+    const seen = new Set<string>();
+    const next: Todo[] = [];
+    for (const id of orderedActiveIds) {
+      const t = byId.get(id);
+      if (t && !seen.has(id)) {
+        next.push(t);
+        seen.add(id);
+      }
+    }
+    for (const t of todos) if (!seen.has(t.id)) next.push(t);
+    setTodos(next);
+    try {
+      await api.reorderTodos(orderedActiveIds);
+    } catch (err) {
+      setError(String(err));
+      setTodos(prevTodos);
+    }
+  };
+
   const onStartSession = async (id: string) => {
     try {
       const result = await api.startSession(id);
@@ -341,6 +364,7 @@ export function App() {
           onRemove={onRemoveTodo}
           onComplete={onCompleteTodo}
           onStartSession={onStartSession}
+          onReorder={onReorderTodos}
         />
         <AgentList
           todos={todos}
