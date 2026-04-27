@@ -52,4 +52,5 @@ export type WsEvent =
   | { type: "session.status"; payload: { todo_id: string; status: SessionStatus; meta?: SessionMeta } }
   | { type: "session.message"; payload: { todo_id: string; message: ChatMessage } }
   | { type: "session.permission_request"; payload: { todo_id: string; permission: PendingPermission } }
-  | { type: "session.codex_output"; payload: { todo_id: string; repo: string; chunk: string } };
+  | { type: "session.codex_output"; payload: { todo_id: string; repo: string; chunk: string } }
+  | { type: "session.composer_restore"; payload: { todo_id: string; text: string } };

@@ -43,6 +43,7 @@ type Listener = {
   onStatus: (todoId: string, status: SessionStatus, meta: SessionMeta) => void;
   onMessage: (todoId: string, message: ChatMessage) => void;
   onPermissionRequest: (todoId: string, permission: PendingPermission) => void;
+  onComposerRestore: (todoId: string, text: string) => void;
 };
 
 class ActiveSession {
@@ -54,6 +55,13 @@ class ActiveSession {
   pendingPermission: PendingPermission | null = null;
   startedAt = new Date().toISOString();
   lastActivityAt = this.startedAt;
+
+  // Set true the moment a user-initiated stop begins, so the consume loop can
+  // distinguish an SDK abort error from a genuine failure.
+  stopping = false;
+  // Captures the most recent user message so the UI can repaste it into the
+  // composer if that turn is interrupted.
+  lastUserText = "";
 
   private inputQueue: InputQueue<SDKUserMessage>;
   private q: Query | null = null;
@@ -98,6 +106,13 @@ class ActiveSession {
       },
     });
     this.loopPromise = this.consume(listener).catch((err) => {
+      // The SDK throws out of its async iterator when interrupt() aborts the
+      // in-flight request. That isn't an error from the user's perspective, so
+      // swallow it — consume() has already emitted the "stopped" system msg.
+      if (this.stopping) {
+        console.log(`[session ${this.todoId}] iterator threw during stop (suppressed): ${String(err)}`);
+        return;
+      }
       console.error(`session ${this.todoId} loop error`, err);
       this.setStatus("error", listener);
       listener.onMessage(this.todoId, this.makeMessage("system", `[error] ${String(err)}`));
@@ -156,16 +171,32 @@ class ActiveSession {
         }
         const isError = anyMsg.is_error === true || (anyMsg.subtype && anyMsg.subtype !== "success");
         if (isError) {
-          const detail = typeof anyMsg.result === "string" ? anyMsg.result : JSON.stringify(anyMsg.result);
-          console.error(`[session ${this.todoId}] sdk result error:`, anyMsg.subtype, detail);
-          const cm = this.makeMessage(
-            "system",
-            `[sdk error: ${anyMsg.subtype ?? "unknown"}] ${detail ?? ""}`,
-          );
-          await appendMessage(this.todoId, cm);
-          listener.onMessage(this.todoId, cm);
-          this.setStatus("error", listener);
+          if (this.stopping) {
+            // User clicked Stop. The SDK aborts its in-flight request and
+            // surfaces it as `error_during_execution`; that's expected, not
+            // an error to surface.
+            console.log(
+              `[session ${this.todoId}] sdk result aborted by user stop (subtype=${anyMsg.subtype})`,
+            );
+            const cm = this.makeMessage("system", "⏹ stopped — agent was interrupted");
+            await appendMessage(this.todoId, cm);
+            listener.onMessage(this.todoId, cm);
+            this.setStatus("idle", listener);
+          } else {
+            const detail = typeof anyMsg.result === "string" ? anyMsg.result : JSON.stringify(anyMsg.result);
+            console.error(`[session ${this.todoId}] sdk result error:`, anyMsg.subtype, detail);
+            const cm = this.makeMessage(
+              "system",
+              `[sdk error: ${anyMsg.subtype ?? "unknown"}] ${detail ?? ""}`,
+            );
+            await appendMessage(this.todoId, cm);
+            listener.onMessage(this.todoId, cm);
+            this.setStatus("error", listener);
+          }
         } else {
+          // Clean turn finish — that user input was fully processed, so don't
+          // offer to repaste it on a future stop.
+          this.lastUserText = "";
           this.setStatus("idle", listener);
         }
         await this.persistMeta();
@@ -225,6 +256,7 @@ class ActiveSession {
       ts: new Date().toISOString(),
     };
     await appendMessage(this.todoId, cm);
+    this.lastUserText = text;
     this.inputQueue.push({
       type: "user",
       message: { role: "user", content: text },
@@ -251,6 +283,7 @@ class ActiveSession {
   }
 
   async interrupt(): Promise<void> {
+    this.stopping = true;
     if (this.q && typeof (this.q as unknown as { interrupt?: () => Promise<void> }).interrupt === "function") {
       try {
         await (this.q as unknown as { interrupt: () => Promise<void> }).interrupt();
@@ -261,6 +294,7 @@ class ActiveSession {
   }
 
   async close(): Promise<void> {
+    this.stopping = true;
     await this.interrupt();
     this.inputQueue.close();
     // Resolve any outstanding permissions to deny so the SDK can finish
@@ -310,12 +344,18 @@ class SessionManager {
 
   async stop(todoId: string, opts: { archive?: boolean } = {}): Promise<void> {
     const session = this.sessions.get(todoId);
+    let restoreText = "";
     if (session) {
+      restoreText = session.lastUserText;
       await session.close();
       this.sessions.delete(todoId);
     }
     if (opts.archive) {
       await archiveSession(todoId);
+    }
+    // Don't repaste on archive — the todo is being marked done, not paused.
+    if (restoreText && !opts.archive && this.listener) {
+      this.listener.onComposerRestore(todoId, restoreText);
     }
   }
 

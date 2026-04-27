@@ -24,6 +24,9 @@ export function App() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [sessions, setSessions] = useState<Record<string, SessionMeta>>({});
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [composerRestores, setComposerRestores] = useState<
+    Record<string, { text: string; nonce: number }>
+  >({});
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
@@ -90,6 +93,17 @@ export function App() {
           },
         };
       });
+    } else if (e.type === "session.composer_restore") {
+      setComposerRestores((prev) => {
+        const cur = prev[e.payload.todo_id];
+        return {
+          ...prev,
+          [e.payload.todo_id]: {
+            text: e.payload.text,
+            nonce: (cur?.nonce ?? 0) + 1,
+          },
+        };
+      });
     } else if (e.type === "session.codex_output") {
       setMessages((prev) => {
         const list = prev[e.payload.todo_id] ?? [];
@@ -143,6 +157,9 @@ export function App() {
   );
   const selectedSession = selectedTodoId ? sessions[selectedTodoId] ?? null : null;
   const selectedMessages = selectedTodoId ? messages[selectedTodoId] ?? [] : [];
+  const selectedComposerRestore = selectedTodoId
+    ? composerRestores[selectedTodoId] ?? null
+    : null;
 
   const onAddTodo = async (title: string) => {
     try {
@@ -318,6 +335,7 @@ export function App() {
           todo={selectedTodo}
           session={selectedSession}
           messages={selectedMessages}
+          composerRestore={selectedComposerRestore}
           onSendMessage={onSendMessage}
           onSetMode={onSetMode}
           onResolvePermission={onResolvePermission}

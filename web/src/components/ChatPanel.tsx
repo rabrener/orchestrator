@@ -42,6 +42,7 @@ interface Props {
   todo: Todo | null;
   session: SessionMeta | null;
   messages: ChatMessage[];
+  composerRestore: { text: string; nonce: number } | null;
   onSendMessage: (text: string) => void;
   onSetMode: (mode: PermissionMode) => void;
   onResolvePermission: (perm: PendingPermission, allow: boolean) => void;
@@ -56,6 +57,7 @@ export function ChatPanel({
   todo,
   session,
   messages,
+  composerRestore,
   onSendMessage,
   onSetMode,
   onResolvePermission,
@@ -129,7 +131,7 @@ export function ChatPanel({
             )}
           </div>
 
-          <Composer onSend={onSendMessage} />
+          <Composer onSend={onSendMessage} restore={composerRestore} />
 
           <footer className="chat-footer">
             <ModePicker
@@ -219,7 +221,13 @@ function EditableTitle({
   );
 }
 
-const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => void }) {
+const Composer = memo(function Composer({
+  onSend,
+  restore,
+}: {
+  onSend: (text: string) => void;
+  restore: { text: string; nonce: number } | null;
+}) {
   const [draft, setDraft] = useState("");
   const [vimMode, setVimMode] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -230,6 +238,25 @@ const Composer = memo(function Composer({ onSend }: { onSend: (text: string) => 
   const preVimDraftRef = useRef("");
   const vimModeRef = useRef(vimMode);
   vimModeRef.current = vimMode;
+
+  // Server pushes a "restore" payload after a user-initiated stop so the user
+  // can edit and resend the interrupted message. Bail out of vim if needed,
+  // and stomp on the textarea regardless of any in-progress draft — at the
+  // moment of stop the user explicitly asked to recover that message.
+  const lastRestoreNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!restore) return;
+    if (lastRestoreNonce.current === restore.nonce) return;
+    lastRestoreNonce.current = restore.nonce;
+    setDraft(restore.text);
+    if (vimModeRef.current) setVimMode(false);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }, [restore]);
 
   const autoSize = () => {
     const el = textareaRef.current;

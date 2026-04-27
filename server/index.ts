@@ -37,6 +37,12 @@ async function main(): Promise<void> {
         payload: { todo_id: todoId, permission },
       });
     },
+    onComposerRestore: (todoId, text) => {
+      broadcast({
+        type: "session.composer_restore",
+        payload: { todo_id: todoId, text },
+      });
+    },
   });
 
   await registerRoutes(app);
