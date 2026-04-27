@@ -190,7 +190,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       reply.code(404);
       return { error: "session_not_found" };
     }
-    await sessionManager.stop(req.params.id);
+    // User-initiated stop: interrupt the current turn but leave the session
+    // in the map so /message can queue a new turn afterward.
+    await sessionManager.stop(req.params.id, { keepAlive: true });
     return { ok: true };
   });
 

@@ -62,6 +62,10 @@ class ActiveSession {
   // Captures the most recent user message so the UI can repaste it into the
   // composer if that turn is interrupted.
   lastUserText = "";
+  // True while the SDK iterator is being consumed. After a stop, the SDK
+  // iterator throws and this flips false — the next sendUserMessage respawns
+  // the query on the same conversation thread.
+  private isLoopActive = false;
 
   private inputQueue: InputQueue<SDKUserMessage>;
   private q: Query | null = null;
@@ -105,18 +109,23 @@ class ActiveSession {
         },
       },
     });
-    this.loopPromise = this.consume(listener).catch((err) => {
-      // The SDK throws out of its async iterator when interrupt() aborts the
-      // in-flight request. That isn't an error from the user's perspective, so
-      // swallow it — consume() has already emitted the "stopped" system msg.
-      if (this.stopping) {
-        console.log(`[session ${this.todoId}] iterator threw during stop (suppressed): ${String(err)}`);
-        return;
-      }
-      console.error(`session ${this.todoId} loop error`, err);
-      this.setStatus("error", listener);
-      listener.onMessage(this.todoId, this.makeMessage("system", `[error] ${String(err)}`));
-    });
+    this.isLoopActive = true;
+    this.loopPromise = this.consume(listener)
+      .catch((err) => {
+        // The SDK throws out of its async iterator when interrupt() aborts the
+        // in-flight request. That isn't an error from the user's perspective, so
+        // swallow it — consume() has already emitted the "stopped" system msg.
+        if (this.stopping) {
+          console.log(`[session ${this.todoId}] iterator threw during stop (suppressed): ${String(err)}`);
+          return;
+        }
+        console.error(`session ${this.todoId} loop error`, err);
+        this.setStatus("error", listener);
+        listener.onMessage(this.todoId, this.makeMessage("system", `[error] ${String(err)}`));
+      })
+      .finally(() => {
+        this.isLoopActive = false;
+      });
   }
 
   private async consume(listener: Listener): Promise<void> {
@@ -249,6 +258,19 @@ class ActiveSession {
   }
 
   async sendUserMessage(text: string, listener: Listener): Promise<void> {
+    // If a stop is winding down, wait for the SDK iterator to actually finish
+    // before deciding whether to push or respawn.
+    if (this.stopping && this.loopPromise) {
+      await this.loopPromise.catch(() => undefined);
+    }
+    // The previous turn ended (clean stop or post-interrupt). Respawn the
+    // query with `resume` on the same conversation thread, on a fresh queue.
+    if (!this.isLoopActive) {
+      this.inputQueue = new InputQueue<SDKUserMessage>();
+      this.stopping = false;
+      this.start(listener, this.sessionId || undefined);
+    }
+
     const cm: ChatMessage = {
       id: `m_${nanoid(10)}`,
       role: "user",
@@ -268,8 +290,19 @@ class ActiveSession {
 
   async setMode(mode: PermissionMode, listener: Listener): Promise<void> {
     this.permissionMode = mode;
-    if (this.q && typeof (this.q as unknown as { setPermissionMode?: (m: string) => Promise<void> }).setPermissionMode === "function") {
-      await (this.q as unknown as { setPermissionMode: (m: string) => Promise<void> }).setPermissionMode(mode);
+    // After a stop, the SDK Query is dead — only push the mode through if the
+    // loop is still consuming. Otherwise it'll be applied when the next
+    // sendUserMessage respawns the query with this.permissionMode.
+    if (
+      this.isLoopActive &&
+      this.q &&
+      typeof (this.q as unknown as { setPermissionMode?: (m: string) => Promise<void> }).setPermissionMode === "function"
+    ) {
+      try {
+        await (this.q as unknown as { setPermissionMode: (m: string) => Promise<void> }).setPermissionMode(mode);
+      } catch (err) {
+        console.error(`[session ${this.todoId}] setPermissionMode failed`, err);
+      }
     }
     this.setStatus(this.status, listener);
   }
@@ -342,19 +375,32 @@ class SessionManager {
     return session;
   }
 
-  async stop(todoId: string, opts: { archive?: boolean } = {}): Promise<void> {
+  async stop(
+    todoId: string,
+    opts: { archive?: boolean; keepAlive?: boolean } = {},
+  ): Promise<void> {
     const session = this.sessions.get(todoId);
     let restoreText = "";
     if (session) {
       restoreText = session.lastUserText;
-      await session.close();
-      this.sessions.delete(todoId);
+      // The text has been "consumed" — don't re-restore on a subsequent stop.
+      session.lastUserText = "";
+      if (opts.keepAlive && !opts.archive) {
+        // Soft stop — interrupt the in-flight turn but keep the session in
+        // the manager map so further /message calls can queue a new turn
+        // (sendUserMessage will respawn the SDK query lazily).
+        await session.interrupt();
+      } else {
+        await session.close();
+        this.sessions.delete(todoId);
+      }
     }
     if (opts.archive) {
       await archiveSession(todoId);
     }
-    // Don't repaste on archive — the todo is being marked done, not paused.
-    if (restoreText && !opts.archive && this.listener) {
+    // Only repaste for a soft stop — destroy/archive shouldn't repopulate
+    // a composer the user no longer has access to.
+    if (restoreText && opts.keepAlive && !opts.archive && this.listener) {
       this.listener.onComposerRestore(todoId, restoreText);
     }
   }
