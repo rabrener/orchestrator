@@ -79,13 +79,17 @@ function ensureVimCommandsRegistered(): void {
   });
 
   // :wq — populate chat input with the vim buffer and exit vim. Does NOT send.
+  // :wq! is accepted as a synonym (vim parses the bang as an argument).
   Vim.defineEx("wq", "wq", () => liveHandlers.current?.accept());
 
-  // :q — exit only if buffer is empty. Otherwise show vim's classic error.
-  Vim.defineEx("q", "q", () => {
+  // :q / :q! — vim's parser strips the bang into params.argString, so a
+  // single registration covers both. Bang ⇒ force-discard, no bang ⇒ only
+  // discard when the buffer is empty.
+  Vim.defineEx("q", "q", (_cm: unknown, params: { argString?: string } = {}) => {
     const h = liveHandlers.current;
     if (!h) return;
-    if (h.getValue().trim() === "") {
+    const bang = (params.argString ?? "").trim().startsWith("!");
+    if (bang || h.getValue().trim() === "") {
       h.discard();
     } else {
       showVimMessage(
@@ -95,9 +99,6 @@ function ensureVimCommandsRegistered(): void {
       );
     }
   });
-
-  // :q! — discard the buffer and restore the chat input to its pre-vim state.
-  Vim.defineEx("q!", "q!", () => liveHandlers.current?.discard());
 }
 
 export function VimComposer({ value, onChange, onAcceptAndExit, onDiscardAndExit }: Props) {
@@ -121,22 +122,19 @@ export function VimComposer({ value, onChange, onAcceptAndExit, onDiscardAndExit
   }, [onAcceptAndExit, onDiscardAndExit]);
 
   useEffect(() => {
-    // Drop straight into insert mode after the editor mounts. The autoFocus
-    // prop on <CodeMirror> handles the actual focus; we just retry until the
-    // view is available so `i` lands in the right place.
+    // Focus the editor as soon as it's mounted; stay in normal mode so the
+    // user can navigate / use ex commands without first pressing Esc.
     let cancelled = false;
-    const tryEnterInsert = () => {
+    const tryFocus = () => {
       if (cancelled) return;
       const view = ref.current?.view;
       if (!view) {
-        requestAnimationFrame(tryEnterInsert);
+        requestAnimationFrame(tryFocus);
         return;
       }
       view.focus();
-      const cm = getCM(view);
-      if (cm) Vim.handleKey(cm, "i", "");
     };
-    requestAnimationFrame(tryEnterInsert);
+    requestAnimationFrame(tryFocus);
     return () => {
       cancelled = true;
     };
