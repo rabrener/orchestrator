@@ -161,6 +161,18 @@ export function App() {
     }
   };
 
+  const onRenameTodo = async (id: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, title: trimmed } : t)));
+    try {
+      await api.renameTodo(id, trimmed);
+    } catch (err) {
+      setError(String(err));
+      api.listTodos().then(setTodos).catch(() => undefined);
+    }
+  };
+
   const onCompleteTodo = async (id: string) => {
     try {
       await api.completeTodo(id);
@@ -313,6 +325,7 @@ export function App() {
           onComplete={() => selectedTodo && onCompleteTodo(selectedTodo.id)}
           onStop={onStopSession}
           onStartSession={() => selectedTodo && onStartSession(selectedTodo.id)}
+          onRenameTodo={onRenameTodo}
         />
       </div>
     </div>

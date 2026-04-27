@@ -91,6 +91,20 @@ export async function removeTodo(id: string): Promise<Todo | null> {
   return removed;
 }
 
+export async function renameTodo(id: string, title: string): Promise<Todo | null> {
+  const trimmed = title.trim();
+  if (!trimmed) return null;
+  let updated: Todo | null = null;
+  await mutate((file) => {
+    const todo = file.todos.find((t) => t.id === id);
+    if (todo) {
+      todo.title = trimmed;
+      updated = todo;
+    }
+  });
+  return updated;
+}
+
 export async function completeTodo(id: string): Promise<Todo | null> {
   let updated: Todo | null = null;
   await mutate((file) => {

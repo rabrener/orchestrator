@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { addTodo, completeTodo, listTodos, removeTodo } from "./store.js";
+import { addTodo, completeTodo, listTodos, removeTodo, renameTodo } from "./store.js";
 import { sessionManager } from "./session-manager.js";
 import { runCodexReview } from "./codex-review.js";
 import { broadcast } from "./ws.js";
@@ -39,6 +39,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     broadcast({ type: "todos.updated", payload: await listTodos() });
     return { todo };
   });
+
+  app.patch<{ Params: { id: string }; Body: { title?: string } }>(
+    "/api/todos/:id",
+    async (req, reply) => {
+      const title = req.body?.title?.trim();
+      if (!title) {
+        reply.code(400);
+        return { error: "title_required" };
+      }
+      const updated = await renameTodo(req.params.id, title);
+      if (!updated) {
+        reply.code(404);
+        return { error: "not_found" };
+      }
+      broadcast({ type: "todos.updated", payload: await listTodos() });
+      return { todo: updated };
+    },
+  );
 
   app.delete<{ Params: { id: string } }>("/api/todos/:id", async (req, reply) => {
     const removed = await removeTodo(req.params.id);

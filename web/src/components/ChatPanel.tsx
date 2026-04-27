@@ -49,6 +49,7 @@ interface Props {
   onComplete: () => void;
   onStop: () => void;
   onStartSession: () => void;
+  onRenameTodo: (id: string, title: string) => void;
 }
 
 export function ChatPanel({
@@ -62,6 +63,7 @@ export function ChatPanel({
   onComplete,
   onStop,
   onStartSession,
+  onRenameTodo,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const renderItems = useMemo(() => groupMessages(messages), [messages]);
@@ -84,7 +86,10 @@ export function ChatPanel({
     <section className="pane chat-pane">
       <header className="chat-header">
         <div>
-          <h2>{todo.title}</h2>
+          <EditableTitle
+            value={todo.title}
+            onCommit={(next) => onRenameTodo(todo.id, next)}
+          />
           {session && (
             <div className="chat-subhead">
               <span className={`status-pill ${session.status}`}>{session.status}</span>
@@ -145,6 +150,72 @@ export function ChatPanel({
         </>
       )}
     </section>
+  );
+}
+
+function EditableTitle({
+  value,
+  onCommit,
+}: {
+  value: string;
+  onCommit: (next: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next && next !== value) onCommit(next);
+    else setDraft(value);
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setDraft(value);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        className="chat-title-edit"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            cancel();
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <h2
+      className="chat-title"
+      title="Click to rename"
+      onClick={() => setEditing(true)}
+    >
+      {value}
+    </h2>
   );
 }
 

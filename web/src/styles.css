@@ -414,6 +414,10 @@ textarea { resize: vertical; }
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+.chat-header > div {
+  flex: 1;
+  min-width: 0;
+}
 .chat-header h2 {
   font-size: 14px;
   font-weight: 600;
@@ -422,6 +426,27 @@ textarea { resize: vertical; }
   text-transform: none;
   letter-spacing: normal;
   color: var(--text);
+}
+.chat-title {
+  cursor: text;
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  margin: -2px -6px;
+}
+.chat-title:hover {
+  background: var(--bg-elev-2);
+}
+.chat-title-edit {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  margin: -3px -7px;
+  width: 100%;
+  outline: none;
 }
 .chat-subhead {
   display: flex;

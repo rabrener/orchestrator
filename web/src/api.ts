@@ -23,6 +23,11 @@ export const api = {
       body: JSON.stringify({ title }),
     }).then((r) => r.todo),
   removeTodo: (id: string) => jsonFetch(`/api/todos/${id}`, { method: "DELETE" }),
+  renameTodo: (id: string, title: string) =>
+    jsonFetch<{ todo: Todo }>(`/api/todos/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }).then((r) => r.todo),
   completeTodo: (id: string) =>
     jsonFetch<{ todo: Todo }>(`/api/todos/${id}/complete`, { method: "POST" }).then(
       (r) => r.todo,
