@@ -236,8 +236,8 @@ textarea {
   flex: 1;
   display: grid;
   /* grid-template-columns is overridden inline by App via a state-driven value
-     so the user can drag the column separators. */
-  grid-template-columns: 280px 4px 320px 4px minmax(0, 1fr);
+     so the user can drag the column separator. */
+  grid-template-columns: 320px 4px minmax(0, 1fr);
   overflow: hidden;
   min-height: 0;
 }
@@ -304,15 +304,13 @@ textarea {
   overflow-y: auto;
   flex: 1;
 }
-.todo-list .empty,
-.agent-list .empty {
+.todo-list .empty {
   padding: 16px 14px;
   color: var(--text-mute);
   font-style: italic;
   font-size: 13px;
 }
-.todo-list .divider,
-.agent-list .divider {
+.todo-list .divider {
   padding: 16px 14px 6px;
   font-size: 10px;
   text-transform: uppercase;
@@ -402,45 +400,6 @@ textarea {
 .todo-remove:hover {
   color: var(--bad);
   background: transparent;
-}
-
-/* AGENT PANE */
-.agent-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  flex: 1;
-}
-.agent-item {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  cursor: pointer;
-  border-left: 3px solid transparent;
-  font-size: 13px;
-}
-.agent-item:hover {
-  background: var(--bg-elev);
-}
-.agent-item.selected {
-  background: var(--bg-elev);
-  border-left-color: var(--accent);
-}
-.agent-item.idle-todo {
-  opacity: 0.7;
-}
-.agent-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agent-mode {
-  font-size: 10px;
-  font-family: var(--mono);
-  color: var(--text-mute);
 }
 
 /* STATUS PILL */

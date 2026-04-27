@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Settings } from "lucide-react";
 import { api, applyPreferences, connectWs, type Preferences } from "./api.js";
 import { TodoList } from "./components/TodoList.js";
-import { AgentList } from "./components/AgentList.js";
 import { ChatPanel } from "./components/ChatPanel.js";
 import { ResizeHandle, usePersistedWidth } from "./components/ResizeHandle.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
@@ -42,14 +41,8 @@ export function App() {
 
   const [todoPaneWidth, adjustTodoPaneWidth] = usePersistedWidth(
     "ui.todoPaneWidth",
-    280,
-    180,
-    600,
-  );
-  const [agentPaneWidth, adjustAgentPaneWidth] = usePersistedWidth(
-    "ui.agentPaneWidth",
     320,
-    180,
+    220,
     700,
   );
 
@@ -371,7 +364,7 @@ export function App() {
       <div
         className="app-body"
         style={{
-          gridTemplateColumns: `${todoPaneWidth}px 4px ${agentPaneWidth}px 4px minmax(0, 1fr)`,
+          gridTemplateColumns: `${todoPaneWidth}px 4px minmax(0, 1fr)`,
         }}
       >
         <TodoList
@@ -386,13 +379,6 @@ export function App() {
           onReorder={onReorderTodos}
         />
         <ResizeHandle onDelta={adjustTodoPaneWidth} ariaLabel="Resize todo pane" />
-        <AgentList
-          todos={todos}
-          sessions={sessions}
-          selectedId={selectedTodoId}
-          onSelect={setSelectedTodoId}
-        />
-        <ResizeHandle onDelta={adjustAgentPaneWidth} ariaLabel="Resize agents pane" />
         <ChatPanel
           todo={selectedTodo}
           session={selectedSession}

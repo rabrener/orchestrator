@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
-import type { SessionMeta, Todo } from "../types.js";
+import type { SessionMeta, SessionStatus, Todo } from "../types.js";
 
 interface Props {
   todos: Todo[];
@@ -16,6 +16,14 @@ interface Props {
 
 type DropEdge = "top" | "bottom";
 
+const STATUS_LABEL: Record<SessionStatus, string> = {
+  working: "working",
+  asking: "needs you",
+  idle: "idle",
+  done: "done",
+  error: "error",
+};
+
 export function TodoList({
   todos,
   sessions,
@@ -29,7 +37,9 @@ export function TodoList({
 }: Props) {
   const [draft, setDraft] = useState("");
   const [dragId, setDragId] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ id: string; edge: DropEdge } | null>(null);
+  const [dropTarget, setDropTarget] = useState<
+    { id: string; edge: DropEdge } | null
+  >(null);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,14 +50,23 @@ export function TodoList({
   };
 
   const active = todos.filter((t) => !t.completed_at);
+  const withAgent = active.filter((t) => sessions[t.id]);
+  const withoutAgent = active.filter((t) => !sessions[t.id]);
   const done = todos.filter((t) => t.completed_at);
+
+  const sectionOf = (id: string): "with" | "without" =>
+    sessions[id] ? "with" : "without";
 
   const handleDragOver = (e: React.DragEvent<HTMLLIElement>, id: string) => {
     if (!dragId) return;
+    // Restrict drops to within the same section so the visual grouping
+    // stays consistent with agent state.
+    if (sectionOf(dragId) !== sectionOf(id)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     const rect = e.currentTarget.getBoundingClientRect();
-    const edge: DropEdge = e.clientY < rect.top + rect.height / 2 ? "top" : "bottom";
+    const edge: DropEdge =
+      e.clientY < rect.top + rect.height / 2 ? "top" : "bottom";
     if (dropTarget?.id !== id || dropTarget.edge !== edge) {
       setDropTarget({ id, edge });
     }
@@ -55,24 +74,124 @@ export function TodoList({
 
   const handleDrop = (e: React.DragEvent<HTMLLIElement>, targetId: string) => {
     e.preventDefault();
-    if (!dragId || dragId === targetId) {
+    if (!dragId || dragId === targetId || sectionOf(dragId) !== sectionOf(targetId)) {
       setDragId(null);
       setDropTarget(null);
       return;
     }
     const rect = e.currentTarget.getBoundingClientRect();
-    const edge: DropEdge = e.clientY < rect.top + rect.height / 2 ? "top" : "bottom";
-    const ids = active.map((t) => t.id).filter((id) => id !== dragId);
-    const targetIdx = ids.indexOf(targetId);
+    const edge: DropEdge =
+      e.clientY < rect.top + rect.height / 2 ? "top" : "bottom";
+    const section = sectionOf(dragId);
+    const sectionIds = (section === "with" ? withAgent : withoutAgent)
+      .map((t) => t.id)
+      .filter((id) => id !== dragId);
+    const otherSectionIds = (section === "with" ? withoutAgent : withAgent).map(
+      (t) => t.id,
+    );
+    const targetIdx = sectionIds.indexOf(targetId);
     const insertAt = edge === "top" ? targetIdx : targetIdx + 1;
-    ids.splice(insertAt, 0, dragId);
+    sectionIds.splice(insertAt, 0, dragId);
+
+    // Concat: with-agent always renders before without-agent so send the
+    // combined active order in that visual sequence.
+    const newOrdered =
+      section === "with"
+        ? [...sectionIds, ...otherSectionIds]
+        : [...otherSectionIds, ...sectionIds];
+
     setDragId(null);
     setDropTarget(null);
-    // Only call onReorder if the order actually changed.
-    const original = active.map((t) => t.id);
-    if (ids.length !== original.length || ids.some((v, i) => v !== original[i])) {
-      onReorder(ids);
+    const original = [
+      ...withAgent.map((t) => t.id),
+      ...withoutAgent.map((t) => t.id),
+    ];
+    if (
+      newOrdered.length !== original.length ||
+      newOrdered.some((v, i) => v !== original[i])
+    ) {
+      onReorder(newOrdered);
     }
+  };
+
+  const renderRow = (t: Todo) => {
+    const session = sessions[t.id];
+    const isDragging = dragId === t.id;
+    const isDropTop = dropTarget?.id === t.id && dropTarget.edge === "top";
+    const isDropBottom = dropTarget?.id === t.id && dropTarget.edge === "bottom";
+    const cls = [
+      "todo-item",
+      selectedId === t.id ? "selected" : "",
+      isDragging ? "dragging" : "",
+      isDropTop ? "drop-above" : "",
+      isDropBottom ? "drop-below" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return (
+      <li
+        key={t.id}
+        className={cls}
+        onClick={() => onSelect(t.id)}
+        draggable
+        onDragStart={(e) => {
+          setDragId(t.id);
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", t.id);
+        }}
+        onDragEnd={() => {
+          setDragId(null);
+          setDropTarget(null);
+        }}
+        onDragOver={(e) => handleDragOver(e, t.id)}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            if (dropTarget?.id === t.id) setDropTarget(null);
+          }
+        }}
+        onDrop={(e) => handleDrop(e, t.id)}
+      >
+        <button
+          className="todo-check"
+          title="mark done"
+          onClick={(e) => {
+            e.stopPropagation();
+            onComplete(t.id);
+          }}
+        >
+          ☐
+        </button>
+        <span className="todo-title">{t.title}</span>
+        {session ? (
+          <span
+            className={`status-pill ${session.status}`}
+            title={`agent: ${session.status}`}
+          >
+            {STATUS_LABEL[session.status]}
+          </span>
+        ) : (
+          <button
+            className="todo-action start"
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartSession(t.id);
+            }}
+          >
+            ▶ start
+          </button>
+        )}
+        <button
+          className="todo-remove"
+          title="remove"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(t.id);
+          }}
+        >
+          ×
+        </button>
+      </li>
+    );
   };
 
   return (
@@ -95,84 +214,16 @@ export function TodoList({
         </button>
       </form>
       <ul className="todo-list">
-        {active.length === 0 && <li className="empty">nothing yet — add one above</li>}
-        {active.map((t) => {
-          const session = sessions[t.id];
-          const hasAgent = !!session;
-          const isDragging = dragId === t.id;
-          const isDropTop = dropTarget?.id === t.id && dropTarget.edge === "top";
-          const isDropBottom = dropTarget?.id === t.id && dropTarget.edge === "bottom";
-          const cls = [
-            "todo-item",
-            selectedId === t.id ? "selected" : "",
-            isDragging ? "dragging" : "",
-            isDropTop ? "drop-above" : "",
-            isDropBottom ? "drop-below" : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
-          return (
-            <li
-              key={t.id}
-              className={cls}
-              onClick={() => onSelect(t.id)}
-              draggable
-              onDragStart={(e) => {
-                setDragId(t.id);
-                e.dataTransfer.effectAllowed = "move";
-                // Firefox needs data set on the dataTransfer for drag to start.
-                e.dataTransfer.setData("text/plain", t.id);
-              }}
-              onDragEnd={() => {
-                setDragId(null);
-                setDropTarget(null);
-              }}
-              onDragOver={(e) => handleDragOver(e, t.id)}
-              onDragLeave={(e) => {
-                // Only clear if leaving the item entirely (not crossing into a child).
-                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                  if (dropTarget?.id === t.id) setDropTarget(null);
-                }
-              }}
-              onDrop={(e) => handleDrop(e, t.id)}
-            >
-              <button
-                className="todo-check"
-                title="mark done"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onComplete(t.id);
-                }}
-              >
-                ☐
-              </button>
-              <span className="todo-title">{t.title}</span>
-              {hasAgent ? (
-                <span className="todo-action active">▶ active</span>
-              ) : (
-                <button
-                  className="todo-action start"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStartSession(t.id);
-                  }}
-                >
-                  ▶ start
-                </button>
-              )}
-              <button
-                className="todo-remove"
-                title="remove"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(t.id);
-                }}
-              >
-                ×
-              </button>
-            </li>
-          );
-        })}
+        {active.length === 0 && (
+          <li className="empty">nothing yet — add one above</li>
+        )}
+        {withAgent.map(renderRow)}
+        {withoutAgent.length > 0 && (
+          <>
+            {withAgent.length > 0 && <li className="divider">not started</li>}
+            {withoutAgent.map(renderRow)}
+          </>
+        )}
         {done.length > 0 && (
           <>
             <li className="divider">done today</li>
