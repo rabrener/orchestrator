@@ -295,7 +295,7 @@ const Composer = memo(function Composer({
       title="Stop"
       className="composer-action stop"
     >
-      <Square size={16} fill="currentColor" aria-hidden="true" />
+      <Square size={18} fill="currentColor" aria-hidden="true" />
     </button>
   ) : (
     <button
@@ -305,7 +305,7 @@ const Composer = memo(function Composer({
       title="Send"
       className="composer-action send"
     >
-      <Send size={16} aria-hidden="true" />
+      <Send size={18} aria-hidden="true" />
     </button>
   );
 
