@@ -242,6 +242,10 @@ const Composer = memo(function Composer({
   draftRef.current = draft;
   const vimModeRef = useRef(vimMode);
   vimModeRef.current = vimMode;
+  const isInFlightRef = useRef(isInFlight);
+  isInFlightRef.current = isInFlight;
+  const onStopRef = useRef(onStop);
+  onStopRef.current = onStop;
 
   // Server pushes a "restore" payload after a user-initiated stop so the user
   // can edit and resend the interrupted message. Bail out of vim if needed,
@@ -292,7 +296,7 @@ const Composer = memo(function Composer({
       type="button"
       onClick={onStop}
       aria-label="Stop"
-      title="Stop"
+      title="Stop (Esc)"
       className="composer-action stop"
     >
       <Square size={18} fill="currentColor" aria-hidden="true" />
@@ -325,12 +329,23 @@ const Composer = memo(function Composer({
   };
 
   // Ctrl+G enters vim mode. Inside vim use :wq / :q! to leave.
+  // Esc stops the agent when in-flight (skipped in vim — that's vim's normal-mode key).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey && (e.key === "g" || e.key === "G")) {
         if (vimModeRef.current) return;
         e.preventDefault();
         enterVim();
+        return;
+      }
+      if (e.key === "Escape") {
+        if (vimModeRef.current) return;
+        if (!isInFlightRef.current) return;
+        const ae = document.activeElement;
+        // Don't hijack Esc from other inputs (e.g. the title rename field).
+        if (ae instanceof HTMLInputElement) return;
+        e.preventDefault();
+        onStopRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
