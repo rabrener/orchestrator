@@ -12,6 +12,7 @@ import { readPreferences } from "./preferences.js";
 import { listTodos, setTodoSessionId } from "./store.js";
 import type {
   ChatMessage,
+  ClaudeTodo,
   PendingPermission,
   PermissionMode,
   SessionMeta,
@@ -19,6 +20,31 @@ import type {
 } from "./types.js";
 
 const ALLOWED_READ_TOOLS = ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "TodoWrite"];
+
+function parseClaudeTodos(input: unknown): ClaudeTodo[] | null {
+  if (!input || typeof input !== "object") return null;
+  const arr = (input as { todos?: unknown }).todos;
+  if (!Array.isArray(arr)) return null;
+  const out: ClaudeTodo[] = [];
+  for (const raw of arr) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as { content?: unknown; status?: unknown; activeForm?: unknown };
+    if (typeof r.content !== "string") continue;
+    if (
+      r.status !== "pending" &&
+      r.status !== "in_progress" &&
+      r.status !== "completed"
+    ) {
+      continue;
+    }
+    out.push({
+      content: r.content,
+      status: r.status,
+      activeForm: typeof r.activeForm === "string" ? r.activeForm : undefined,
+    });
+  }
+  return out;
+}
 
 // The SDK's bundled native-binary resolution mis-detects glibc as musl on some
 // distros, so point it at the system `claude` CLI (the one `claude login`
@@ -63,6 +89,10 @@ class ActiveSession {
   // Captures the most recent user message so the UI can repaste it into the
   // composer if that turn is interrupted.
   lastUserText = "";
+  // Mirror of the agent's internal TodoWrite list (Claude Code's own task
+  // tracker). Updated whenever the agent calls TodoWrite. Surfaced to the UI
+  // via SessionMeta.claude_todos.
+  claudeTodos: ClaudeTodo[] = [];
   // True while the SDK iterator is being consumed. After a stop, the SDK
   // iterator throws and this flips false — the next sendUserMessage respawns
   // the query on the same conversation thread.
@@ -164,6 +194,13 @@ class ActiveSession {
             await appendMessage(this.todoId, cm);
             listener.onMessage(this.todoId, cm);
           } else if (b.type === "tool_use") {
+            if (b.name === "TodoWrite") {
+              const next = parseClaudeTodos(b.input);
+              if (next) {
+                this.claudeTodos = next;
+                this.setStatus(this.status, listener);
+              }
+            }
             const cm = this.makeMessage(
               "tool",
               typeof b.input === "string" ? b.input : JSON.stringify(b.input, null, 2),
@@ -247,6 +284,7 @@ class ActiveSession {
       pending_permission: this.pendingPermission,
       started_at: this.startedAt,
       last_activity_at: this.lastActivityAt,
+      claude_todos: this.claudeTodos.length ? this.claudeTodos : undefined,
     };
   }
 
@@ -372,6 +410,7 @@ class SessionManager {
       existingMeta?.permission_mode ?? prefs?.default_permission_mode ?? "default";
     const session = new ActiveSession(todoId, JINNI_ROOT, taskTitle, mode);
     if (resumeSessionId) session.sessionId = resumeSessionId;
+    if (existingMeta?.claude_todos) session.claudeTodos = existingMeta.claude_todos;
     this.sessions.set(todoId, session);
     session.start(this.listener, resumeSessionId);
     return session;

@@ -5,6 +5,7 @@ import { Send, Square } from "lucide-react";
 import { ModePicker } from "./ModePicker.js";
 import type {
   ChatMessage,
+  ClaudeTodo,
   PendingPermission,
   PermissionMode,
   SessionMeta,
@@ -28,6 +29,9 @@ function groupMessages(messages: ChatMessage[]): RenderItem[] {
     run = [];
   };
   for (const m of messages) {
+    // TodoWrite is rendered in its own dedicated panel above the chat log; skip
+    // it here to avoid duplicating the same data as a noisy JSON tool card.
+    if (m.role === "tool" && m.tool_name === "TodoWrite") continue;
     if (m.role === "tool") {
       run.push(m);
       continue;
@@ -113,6 +117,9 @@ export function ChatPanel({
 
       {session && (
         <>
+          {session.claude_todos && session.claude_todos.length > 0 && (
+            <ClaudeTodoPanel todos={session.claude_todos} />
+          )}
           <div ref={scrollRef} className="chat-log">
             {messages.length === 0 && (
               <div className="chat-hint">type a message below to kick off the agent</div>
@@ -409,6 +416,64 @@ const Composer = memo(function Composer({
     </>
   );
 });
+
+const ClaudeTodoPanel = memo(
+  function ClaudeTodoPanel({ todos }: { todos: ClaudeTodo[] }) {
+    const [collapsed, setCollapsed] = useState(false);
+    const counts = todos.reduce(
+      (acc, t) => {
+        acc[t.status] += 1;
+        return acc;
+      },
+      { pending: 0, in_progress: 0, completed: 0 },
+    );
+    const total = todos.length;
+    return (
+      <div className="claude-todos">
+        <button
+          type="button"
+          className="claude-todos-header"
+          onClick={() => setCollapsed((v) => !v)}
+          aria-expanded={!collapsed}
+        >
+          <span className="claude-todos-chevron">{collapsed ? "▸" : "▾"}</span>
+          <span className="claude-todos-title">agent task list</span>
+          <span className="claude-todos-progress">
+            {counts.completed}/{total}
+            {counts.in_progress > 0 ? ` · ${counts.in_progress} active` : ""}
+          </span>
+        </button>
+        {!collapsed && (
+          <ul className="claude-todos-list">
+            {todos.map((t, i) => (
+              <li key={`${i}_${t.content}`} className={`claude-todo ${t.status}`}>
+                <span className="claude-todo-marker" aria-hidden="true">
+                  {t.status === "completed" ? "☑" : t.status === "in_progress" ? "◧" : "☐"}
+                </span>
+                <span className="claude-todo-text">
+                  {t.status === "in_progress" && t.activeForm ? t.activeForm : t.content}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  },
+  (a, b) => {
+    if (a.todos === b.todos) return true;
+    if (a.todos.length !== b.todos.length) return false;
+    for (let i = 0; i < a.todos.length; i++) {
+      if (
+        a.todos[i].content !== b.todos[i].content ||
+        a.todos[i].status !== b.todos[i].status
+      ) {
+        return false;
+      }
+    }
+    return true;
+  },
+);
 
 const RenderedMarkdown = memo(function RenderedMarkdown({ source }: { source: string }) {
   return <ReactMarkdown remarkPlugins={[remarkGfm]}>{source}</ReactMarkdown>;

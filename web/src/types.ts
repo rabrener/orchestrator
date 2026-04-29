@@ -27,6 +27,12 @@ export interface PendingPermission {
   input: unknown;
 }
 
+export interface ClaudeTodo {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  activeForm?: string;
+}
+
 export interface SessionMeta {
   todo_id: string;
   session_id: string;
@@ -36,6 +42,7 @@ export interface SessionMeta {
   pending_permission: PendingPermission | null;
   started_at: string;
   last_activity_at: string;
+  claude_todos?: ClaudeTodo[];
 }
 
 export interface ChatMessage {
