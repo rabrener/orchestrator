@@ -75,9 +75,77 @@ export function ChatPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const renderItems = useMemo(() => groupMessages(messages), [messages]);
 
+  // Auto-scroll only when the user is already pinned to the bottom. If they've
+  // scrolled up to read older messages, leave their viewport alone and surface
+  // a "↓ N new" pill they can click to jump back down.
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const pinnedRef = useRef(pinnedToBottom);
+  pinnedRef.current = pinnedToBottom;
+  const prevMessageCountRef = useRef(messages.length);
+  const todoIdRef = useRef<string | null>(todo?.id ?? null);
+
+  // Reset pin state when switching todos and snap to bottom on first paint.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    const nextId = todo?.id ?? null;
+    if (todoIdRef.current === nextId) return;
+    todoIdRef.current = nextId;
+    setPinnedToBottom(true);
+    setUnreadCount(0);
+    prevMessageCountRef.current = messages.length;
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, [todo?.id, messages.length]);
+
+  useEffect(() => {
+    const grew = messages.length > prevMessageCountRef.current;
+    if (!grew) {
+      prevMessageCountRef.current = messages.length;
+      return;
+    }
+    const delta = messages.length - prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+    const last = messages[messages.length - 1];
+    const userJustSent = last?.role === "user";
+
+    if (pinnedRef.current || userJustSent) {
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+      if (userJustSent && !pinnedRef.current) setPinnedToBottom(true);
+      if (unreadCount !== 0) setUnreadCount(0);
+    } else {
+      setUnreadCount((c) => c + delta);
+    }
+    // unreadCount intentionally excluded — we read it via setter form when
+    // appending and via direct check when resetting; including it would
+    // re-fire this effect on its own state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
+
+  const onChatScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const atBottom = distanceFromBottom < 40;
+    if (atBottom) {
+      if (!pinnedRef.current) setPinnedToBottom(true);
+      if (unreadCount !== 0) setUnreadCount(0);
+    } else if (pinnedRef.current) {
+      setPinnedToBottom(false);
+    }
+  };
+
+  const jumpToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    setPinnedToBottom(true);
+    setUnreadCount(0);
+  };
 
   if (!todo) {
     return (
@@ -120,22 +188,34 @@ export function ChatPanel({
           {session.claude_todos && session.claude_todos.length > 0 && (
             <ClaudeTodoPanel todos={session.claude_todos} />
           )}
-          <div ref={scrollRef} className="chat-log">
-            {messages.length === 0 && (
-              <div className="chat-hint">type a message below to kick off the agent</div>
-            )}
-            {renderItems.map((item) =>
-              item.kind === "message" ? (
-                <MessageRow key={item.message.id} message={item.message} />
-              ) : (
-                <ToolRunCard key={item.id} tools={item.tools} />
-              ),
-            )}
-            {session.pending_permission && (
-              <PermissionPrompt
-                perm={session.pending_permission}
-                onResolve={onResolvePermission}
-              />
+          <div className="chat-log-wrap">
+            <div ref={scrollRef} className="chat-log" onScroll={onChatScroll}>
+              {messages.length === 0 && (
+                <div className="chat-hint">type a message below to kick off the agent</div>
+              )}
+              {renderItems.map((item) =>
+                item.kind === "message" ? (
+                  <MessageRow key={item.message.id} message={item.message} />
+                ) : (
+                  <ToolRunCard key={item.id} tools={item.tools} />
+                ),
+              )}
+              {session.pending_permission && (
+                <PermissionPrompt
+                  perm={session.pending_permission}
+                  onResolve={onResolvePermission}
+                />
+              )}
+            </div>
+            {!pinnedToBottom && unreadCount > 0 && (
+              <button
+                type="button"
+                className="chat-jump-bottom"
+                onClick={jumpToBottom}
+                aria-label={`Jump to ${unreadCount} new ${unreadCount === 1 ? "message" : "messages"}`}
+              >
+                ↓ {unreadCount} new {unreadCount === 1 ? "message" : "messages"}
+              </button>
             )}
           </div>
 
