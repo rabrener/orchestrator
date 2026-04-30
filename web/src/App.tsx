@@ -17,6 +17,7 @@ import type {
   PendingPermission,
   PermissionMode,
   SessionMeta,
+  SlashCommand,
   Todo,
   WsEvent,
 } from "./types.js";
@@ -35,6 +36,7 @@ export function App() {
     useState<NotificationPermissionState>(getPermissionState());
   const [preferences, setPreferences] = useState<Preferences | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const wsConnectedRef = useRef(false);
   const todosRef = useRef<Todo[]>([]);
   const prevStatusRef = useRef<Record<string, string>>({});
@@ -145,6 +147,10 @@ export function App() {
       .listTodos()
       .then(setTodos)
       .catch((err) => setError(String(err)));
+    api
+      .listSlashCommands()
+      .then(setSlashCommands)
+      .catch(() => undefined);
     api
       .listSessions()
       .then(async (list) => {
@@ -384,6 +390,7 @@ export function App() {
           session={selectedSession}
           messages={selectedMessages}
           composerRestore={selectedComposerRestore}
+          slashCommands={slashCommands}
           onSendMessage={onSendMessage}
           onSetMode={onSetMode}
           onResolvePermission={onResolvePermission}

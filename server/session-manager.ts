@@ -93,6 +93,10 @@ class ActiveSession {
   // tracker). Updated whenever the agent calls TodoWrite. Surfaced to the UI
   // via SessionMeta.claude_todos.
   claudeTodos: ClaudeTodo[] = [];
+  // Slash commands the SDK reports as runnable for this session, captured from
+  // the `system/init` message. Names only — the UI joins these with filesystem
+  // metadata (description / argument-hint) for autocomplete.
+  slashCommands: string[] = [];
   // True while the SDK iterator is being consumed. After a stop, the SDK
   // iterator throws and this flips false — the next sendUserMessage respawns
   // the query on the same conversation thread.
@@ -174,11 +178,18 @@ class ActiveSession {
         message?: unknown;
         result?: unknown;
         is_error?: boolean;
+        slash_commands?: unknown;
       };
       console.log(`[session ${this.todoId}] sdk msg:`, anyMsg.type, anyMsg.subtype ?? "");
 
       if (anyMsg.type === "system" && anyMsg.subtype === "init" && anyMsg.session_id) {
         this.sessionId = anyMsg.session_id;
+        if (Array.isArray(anyMsg.slash_commands)) {
+          this.slashCommands = anyMsg.slash_commands.filter(
+            (x): x is string => typeof x === "string",
+          );
+          this.setStatus(this.status, listener);
+        }
         await setTodoSessionId(this.todoId, this.sessionId);
         await this.persistMeta();
         continue;
@@ -285,6 +296,7 @@ class ActiveSession {
       started_at: this.startedAt,
       last_activity_at: this.lastActivityAt,
       claude_todos: this.claudeTodos.length ? this.claudeTodos : undefined,
+      slash_commands: this.slashCommands.length ? this.slashCommands : undefined,
     };
   }
 

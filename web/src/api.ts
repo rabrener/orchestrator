@@ -1,4 +1,11 @@
-import type { ChatMessage, PermissionMode, SessionMeta, Todo, WsEvent } from "./types.js";
+import type {
+  ChatMessage,
+  PermissionMode,
+  SessionMeta,
+  SlashCommand,
+  Todo,
+  WsEvent,
+} from "./types.js";
 
 export type { PermissionMode };
 
@@ -68,6 +75,9 @@ export const api = {
     jsonFetch(`/api/sessions/${todoId}/codex-review`, { method: "POST" }),
   stopSession: (todoId: string) =>
     jsonFetch(`/api/sessions/${todoId}/stop`, { method: "POST" }),
+
+  listSlashCommands: () =>
+    jsonFetch<{ commands: SlashCommand[] }>("/api/slash-commands").then((r) => r.commands),
 
   getPreferences: () =>
     jsonFetch<{ preferences: Preferences }>("/api/preferences").then((r) => r.preferences),

@@ -9,6 +9,7 @@ import type {
   PendingPermission,
   PermissionMode,
   SessionMeta,
+  SlashCommand,
   Todo,
 } from "../types.js";
 
@@ -48,6 +49,7 @@ interface Props {
   session: SessionMeta | null;
   messages: ChatMessage[];
   composerRestore: { text: string; nonce: number } | null;
+  slashCommands: SlashCommand[];
   onSendMessage: (text: string) => void;
   onSetMode: (mode: PermissionMode) => void;
   onResolvePermission: (perm: PendingPermission, allow: boolean) => void;
@@ -63,6 +65,7 @@ export function ChatPanel({
   session,
   messages,
   composerRestore,
+  slashCommands,
   onSendMessage,
   onSetMode,
   onResolvePermission,
@@ -224,6 +227,8 @@ export function ChatPanel({
             restore={composerRestore}
             isInFlight={session.status === "working" || session.status === "asking"}
             onStop={onStop}
+            slashCommands={slashCommands}
+            sdkSlashCommands={session.slash_commands}
           />
 
           <footer className="chat-footer">
@@ -311,19 +316,30 @@ function EditableTitle({
   );
 }
 
+interface ComposerCommand {
+  name: string;
+  description: string;
+  argument_hint?: string;
+}
+
 const Composer = memo(function Composer({
   onSend,
   restore,
   isInFlight,
   onStop,
+  slashCommands,
+  sdkSlashCommands,
 }: {
   onSend: (text: string) => void;
   restore: { text: string; nonce: number } | null;
   isInFlight: boolean;
   onStop: () => void;
+  slashCommands: SlashCommand[];
+  sdkSlashCommands?: string[];
 }) {
   const [draft, setDraft] = useState("");
   const [vimMode, setVimMode] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -333,6 +349,61 @@ const Composer = memo(function Composer({
   isInFlightRef.current = isInFlight;
   const onStopRef = useRef(onStop);
   onStopRef.current = onStop;
+
+  // Merge FS-discovered metadata with the SDK's runnable list. If the SDK has
+  // reported slash_commands for this session, that's the authoritative set of
+  // what's runnable — but it's names-only, so we fold in description /
+  // argument_hint from the filesystem scan when available. If the SDK list is
+  // empty (session not started yet, or pre-init), fall back to FS-only.
+  const combinedCommands = useMemo<ComposerCommand[]>(() => {
+    const byName = new Map<string, ComposerCommand>();
+    for (const c of slashCommands) {
+      byName.set(c.name, {
+        name: c.name,
+        description: c.description,
+        argument_hint: c.argument_hint,
+      });
+    }
+    if (sdkSlashCommands && sdkSlashCommands.length > 0) {
+      // Only show entries the SDK reports as runnable; add SDK-only entries
+      // (e.g. plugin commands, built-ins) that the FS scan didn't pick up.
+      const allowed = new Set(sdkSlashCommands);
+      for (const name of sdkSlashCommands) {
+        if (!byName.has(name)) byName.set(name, { name, description: "" });
+      }
+      for (const name of Array.from(byName.keys())) {
+        if (!allowed.has(name)) byName.delete(name);
+      }
+    }
+    return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [slashCommands, sdkSlashCommands]);
+
+  // The dropdown opens whenever the draft is a single slash-token (no space
+  // typed yet) — i.e. the user is still picking the command, not writing args.
+  const slashOpen =
+    !vimMode && draft.startsWith("/") && !draft.includes(" ") && !draft.includes("\n");
+  const slashFilter = slashOpen ? draft.slice(1).toLowerCase() : "";
+  const filteredCommands = useMemo(() => {
+    if (!slashOpen) return [];
+    if (!slashFilter) return combinedCommands;
+    return combinedCommands.filter((c) => c.name.toLowerCase().includes(slashFilter));
+  }, [combinedCommands, slashFilter, slashOpen]);
+
+  // Reset selection to the top whenever the filter changes or the dropdown
+  // reopens, so arrow-keys feel predictable.
+  useEffect(() => {
+    setSlashIndex(0);
+  }, [slashFilter, slashOpen]);
+
+  const applyCommand = (cmd: ComposerCommand) => {
+    setDraft(`/${cmd.name} `);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  };
 
   // Server pushes a "restore" payload after a user-initiated stop so the user
   // can edit and resend the interrupted message. Bail out of vim if needed,
@@ -474,12 +545,50 @@ const Composer = memo(function Composer({
   return (
     <>
       <form className="chat-input" onSubmit={onFormSubmit}>
+        {slashOpen && filteredCommands.length > 0 && (
+          <SlashCommandMenu
+            commands={filteredCommands}
+            selectedIndex={slashIndex}
+            onHover={setSlashIndex}
+            onSelect={applyCommand}
+          />
+        )}
         <textarea
           ref={textareaRef}
-          placeholder="message…"
+          placeholder="Enter prompt for Claude Code"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
+            // Slash autocomplete: when the dropdown is open with at least one
+            // candidate, intercept navigation/select/dismiss keys before the
+            // textarea handles them. Tab/Enter pick the highlighted command;
+            // Esc dismisses without affecting the draft. Plain Enter still
+            // sends if the dropdown has nothing to offer.
+            if (slashOpen && filteredCommands.length > 0) {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSlashIndex((i) => (i + 1) % filteredCommands.length);
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSlashIndex((i) => (i - 1 + filteredCommands.length) % filteredCommands.length);
+                return;
+              }
+              if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                e.preventDefault();
+                const cmd = filteredCommands[slashIndex] ?? filteredCommands[0];
+                applyCommand(cmd);
+                return;
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                // Wipe the leading slash so the dropdown closes but keep any
+                // typed prefix as plain text in case the user wanted it.
+                setDraft(draft.slice(1));
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               if (isInFlight) return;
@@ -491,11 +600,65 @@ const Composer = memo(function Composer({
         {actionButton}
       </form>
       <div className="chat-input-hint">
-        <kbd>Ctrl+G</kbd> for vim mode
+        <kbd>Ctrl+G</kbd> for vim mode · <kbd>/</kbd> for commands
       </div>
     </>
   );
 });
+
+function SlashCommandMenu({
+  commands,
+  selectedIndex,
+  onHover,
+  onSelect,
+}: {
+  commands: ComposerCommand[];
+  selectedIndex: number;
+  onHover: (i: number) => void;
+  onSelect: (cmd: ComposerCommand) => void;
+}) {
+  // Keep the highlighted row scrolled into view as the user arrows through a
+  // long list (e.g. all gstack skills).
+  const listRef = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const item = list.children[selectedIndex] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
+
+  return (
+    <div className="slash-menu" role="listbox" aria-label="Slash commands">
+      <ul ref={listRef} className="slash-menu-list">
+        {commands.map((cmd, i) => (
+          <li
+            key={cmd.name}
+            className={`slash-menu-item ${i === selectedIndex ? "selected" : ""}`}
+            role="option"
+            aria-selected={i === selectedIndex}
+            onMouseEnter={() => onHover(i)}
+            onMouseDown={(e) => {
+              // mousedown so we beat the textarea's blur and avoid losing focus
+              // before the click registers.
+              e.preventDefault();
+              onSelect(cmd);
+            }}
+          >
+            <div className="slash-menu-name">
+              /{cmd.name}
+              {cmd.argument_hint && (
+                <span className="slash-menu-arg-hint">{cmd.argument_hint}</span>
+              )}
+            </div>
+            {cmd.description && (
+              <div className="slash-menu-desc">{cmd.description}</div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 const ClaudeTodoPanel = memo(
   function ClaudeTodoPanel({ todos }: { todos: ClaudeTodo[] }) {

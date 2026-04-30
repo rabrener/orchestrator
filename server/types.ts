@@ -48,6 +48,9 @@ export interface SessionMeta {
   started_at: string;
   last_activity_at: string;
   claude_todos?: ClaudeTodo[];
+  // Slash command names the SDK reports as runnable for this session
+  // (from system/init). Names only; metadata comes from the discovery endpoint.
+  slash_commands?: string[];
 }
 
 export interface ChatMessage {

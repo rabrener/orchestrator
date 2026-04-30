@@ -43,6 +43,15 @@ export interface SessionMeta {
   started_at: string;
   last_activity_at: string;
   claude_todos?: ClaudeTodo[];
+  slash_commands?: string[];
+}
+
+export interface SlashCommand {
+  name: string;
+  description: string;
+  argument_hint?: string;
+  source: "user-command" | "user-skill" | "project-command" | "project-skill";
+  path: string;
 }
 
 export interface ChatMessage {

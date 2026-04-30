@@ -12,6 +12,7 @@ import { runCodexReview } from "./codex-review.js";
 import { broadcast } from "./ws.js";
 import { readPreferences, writePreferences } from "./preferences.js";
 import type { Preferences } from "./preferences.js";
+import { discoverSlashCommands } from "./slash-commands.js";
 import type { PermissionMode } from "./types.js";
 
 const VALID_MODES: PermissionMode[] = [
@@ -25,6 +26,11 @@ const VALID_MODES: PermissionMode[] = [
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/health", async () => ({ ok: true, ts: new Date().toISOString() }));
+
+  // ── Slash commands ─────────────────────────────────────────────────
+  app.get("/api/slash-commands", async () => ({
+    commands: await discoverSlashCommands(),
+  }));
 
   // ── Preferences ────────────────────────────────────────────────────
   app.get("/api/preferences", async () => ({ preferences: await readPreferences() }));
