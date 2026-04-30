@@ -172,6 +172,7 @@ export function ChatPanel({
             <div className="chat-subhead">
               <span className={`status-pill ${session.status}`}>{session.status}</span>
               <span className="cwd">cwd: ~/Documents/jinni</span>
+              <ContextMeter session={session} />
             </div>
           )}
         </div>
@@ -313,6 +314,35 @@ function EditableTitle({
     >
       {value}
     </h2>
+  );
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function ContextMeter({ session }: { session: SessionMeta }) {
+  const tokens = session.context_tokens ?? 0;
+  const window = session.context_window ?? 0;
+  if (!tokens || !window) return null;
+  const pct = Math.min(100, (tokens / window) * 100);
+  // Tier thresholds: green up to 60%, amber 60-80%, red past 80%. Past ~95%
+  // the next turn is very likely to overflow — the SDK does NOT auto-compact,
+  // so the request will error and the user has to start a new session.
+  const tier = pct >= 80 ? "danger" : pct >= 60 ? "warn" : "ok";
+  const title =
+    `${formatTokens(tokens)} / ${formatTokens(window)} tokens (${pct.toFixed(0)}%)` +
+    (session.model ? `\nmodel: ${session.model}` : "") +
+    `\nThe Agent SDK does not auto-compact. Start a new session before this fills.`;
+  return (
+    <span className={`context-meter ${tier}`} title={title}>
+      <span className="context-meter-bar">
+        <span className="context-meter-fill" style={{ width: `${pct}%` }} />
+      </span>
+      <span className="context-meter-label">{pct.toFixed(0)}%</span>
+    </span>
   );
 }
 

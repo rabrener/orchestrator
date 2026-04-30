@@ -510,6 +510,47 @@ textarea {
 .cwd {
   font-family: var(--mono);
 }
+
+/* ── Context meter ─────────────────────────────────────────────────── */
+.context-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: help;
+}
+.context-meter-bar {
+  display: inline-block;
+  width: 80px;
+  height: 6px;
+  background: var(--bg-elev);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.context-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 200ms ease, background 200ms ease;
+}
+.context-meter.ok .context-meter-fill {
+  background: #4ade80;
+}
+.context-meter.warn .context-meter-fill {
+  background: #fbbf24;
+}
+.context-meter.warn .context-meter-label {
+  color: #fbbf24;
+}
+.context-meter.danger .context-meter-fill {
+  background: #f87171;
+}
+.context-meter.danger .context-meter-label {
+  color: #f87171;
+  font-weight: 600;
+}
 .chat-empty {
   flex: 1;
   display: flex;

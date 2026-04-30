@@ -51,6 +51,13 @@ export interface SessionMeta {
   // Slash command names the SDK reports as runnable for this session
   // (from system/init). Names only; metadata comes from the discovery endpoint.
   slash_commands?: string[];
+  // Effective context size of the last turn (input + cache_creation + cache_read).
+  // Undefined until the first assistant message lands. The Agent SDK does NOT
+  // auto-compact, so when this nears `context_window` the next turn will error —
+  // the UI uses these to render a meter and prompt the user to start fresh.
+  context_tokens?: number;
+  context_window?: number;
+  model?: string;
 }
 
 export interface ChatMessage {

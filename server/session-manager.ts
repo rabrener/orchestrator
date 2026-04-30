@@ -21,6 +21,17 @@ import type {
 
 const ALLOWED_READ_TOOLS = ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "TodoWrite"];
 
+// Pick the right context-window ceiling for a given model id. The SDK doesn't
+// expose this directly, so we infer from the model string:
+// - explicit `[1m]` tag (e.g. `claude-opus-4-7[1m]`) → 1M-token variant
+// - everything else falls back to the standard 200K window
+// New model families should be added here as they ship.
+function contextWindowForModel(model: string): number {
+  if (!model) return 200_000;
+  if (/\[1m\]/i.test(model) || /-1m\b/i.test(model)) return 1_000_000;
+  return 200_000;
+}
+
 function parseClaudeTodos(input: unknown): ClaudeTodo[] | null {
   if (!input || typeof input !== "object") return null;
   const arr = (input as { todos?: unknown }).todos;
@@ -97,6 +108,13 @@ class ActiveSession {
   // the `system/init` message. Names only — the UI joins these with filesystem
   // metadata (description / argument-hint) for autocomplete.
   slashCommands: string[] = [];
+  // Model id reported by `system/init`, plus the effective context size of the
+  // most recent turn. The SDK doesn't auto-compact — when contextTokens nears
+  // contextWindow the next turn will fail with a context-length error, so the
+  // UI exposes both as a meter that prompts the user to start a fresh session.
+  model = "";
+  contextTokens = 0;
+  contextWindow = 0;
   // True while the SDK iterator is being consumed. After a stop, the SDK
   // iterator throws and this flips false — the next sendUserMessage respawns
   // the query on the same conversation thread.
@@ -179,6 +197,7 @@ class ActiveSession {
         result?: unknown;
         is_error?: boolean;
         slash_commands?: unknown;
+        model?: unknown;
       };
       console.log(`[session ${this.todoId}] sdk msg:`, anyMsg.type, anyMsg.subtype ?? "");
 
@@ -188,8 +207,12 @@ class ActiveSession {
           this.slashCommands = anyMsg.slash_commands.filter(
             (x): x is string => typeof x === "string",
           );
-          this.setStatus(this.status, listener);
         }
+        if (typeof anyMsg.model === "string") {
+          this.model = anyMsg.model;
+          this.contextWindow = contextWindowForModel(anyMsg.model);
+        }
+        this.setStatus(this.status, listener);
         await setTodoSessionId(this.todoId, this.sessionId);
         await this.persistMeta();
         continue;
@@ -197,7 +220,26 @@ class ActiveSession {
 
       if (anyMsg.type === "assistant") {
         this.setStatus("working", listener);
-        const content = (anyMsg.message as { content?: unknown[] })?.content ?? [];
+        const message = anyMsg.message as {
+          content?: unknown[];
+          usage?: {
+            input_tokens?: number;
+            cache_creation_input_tokens?: number;
+            cache_read_input_tokens?: number;
+          };
+        } | undefined;
+        // Effective context = uncached input + cache-creation + cache-read.
+        // All three count against the model's window for this turn; only the
+        // mix of cached vs. uncached affects cost.
+        const usage = message?.usage;
+        if (usage) {
+          const tokens =
+            (usage.input_tokens ?? 0) +
+            (usage.cache_creation_input_tokens ?? 0) +
+            (usage.cache_read_input_tokens ?? 0);
+          if (tokens > 0) this.contextTokens = tokens;
+        }
+        const content = message?.content ?? [];
         for (const block of content) {
           const b = block as { type: string; text?: string; name?: string; input?: unknown };
           if (b.type === "text" && b.text) {
@@ -297,6 +339,9 @@ class ActiveSession {
       last_activity_at: this.lastActivityAt,
       claude_todos: this.claudeTodos.length ? this.claudeTodos : undefined,
       slash_commands: this.slashCommands.length ? this.slashCommands : undefined,
+      context_tokens: this.contextTokens || undefined,
+      context_window: this.contextWindow || undefined,
+      model: this.model || undefined,
     };
   }
 
@@ -423,6 +468,9 @@ class SessionManager {
     const session = new ActiveSession(todoId, JINNI_ROOT, taskTitle, mode);
     if (resumeSessionId) session.sessionId = resumeSessionId;
     if (existingMeta?.claude_todos) session.claudeTodos = existingMeta.claude_todos;
+    if (existingMeta?.context_tokens) session.contextTokens = existingMeta.context_tokens;
+    if (existingMeta?.context_window) session.contextWindow = existingMeta.context_window;
+    if (existingMeta?.model) session.model = existingMeta.model;
     this.sessions.set(todoId, session);
     session.start(this.listener, resumeSessionId);
     return session;

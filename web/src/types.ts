@@ -44,6 +44,9 @@ export interface SessionMeta {
   last_activity_at: string;
   claude_todos?: ClaudeTodo[];
   slash_commands?: string[];
+  context_tokens?: number;
+  context_window?: number;
+  model?: string;
 }
 
 export interface SlashCommand {
