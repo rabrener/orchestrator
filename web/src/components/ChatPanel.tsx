@@ -234,7 +234,10 @@ export function ChatPanel({
       {session && (
         <>
           {session.claude_todos && session.claude_todos.length > 0 && (
-            <ClaudeTodoPanel todos={session.claude_todos} />
+            <ClaudeTodoPanel
+              todos={session.claude_todos}
+              sessionKey={session.session_id || session.todo_id}
+            />
           )}
           <div className="chat-log-wrap">
             <div ref={setScrollRef} className="chat-log" onScroll={onChatScroll}>
@@ -900,8 +903,31 @@ function SlashCommandMenu({
 }
 
 const ClaudeTodoPanel = memo(
-  function ClaudeTodoPanel({ todos }: { todos: ClaudeTodo[] }) {
-    const [collapsed, setCollapsed] = useState(false);
+  function ClaudeTodoPanel({
+    todos,
+    sessionKey,
+  }: {
+    todos: ClaudeTodo[];
+    sessionKey: string;
+  }) {
+    // Default collapsed. Auto-open exactly once per session — when the agent
+    // first generates a todo list, opening it surfaces the plan to the user.
+    // Subsequent refreshes / navigations keep it closed: localStorage flags
+    // the session as "seen," so a re-mount finds the flag and stays collapsed.
+    const [collapsed, setCollapsed] = useState(true);
+    useEffect(() => {
+      if (!sessionKey) return;
+      const storageKey = `claude-todos-seen:${sessionKey}`;
+      try {
+        if (!localStorage.getItem(storageKey)) {
+          localStorage.setItem(storageKey, "1");
+          setCollapsed(false);
+        }
+      } catch {
+        // localStorage unavailable (private mode, quota) — fall back to the
+        // default-collapsed state without crashing.
+      }
+    }, [sessionKey]);
     const counts = todos.reduce(
       (acc, t) => {
         acc[t.status] += 1;
@@ -943,6 +969,7 @@ const ClaudeTodoPanel = memo(
     );
   },
   (a, b) => {
+    if (a.sessionKey !== b.sessionKey) return false;
     if (a.todos === b.todos) return true;
     if (a.todos.length !== b.todos.length) return false;
     for (let i = 0; i < a.todos.length; i++) {
