@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Send, Square } from "lucide-react";
@@ -77,7 +77,7 @@ export function ChatPanel({
   onStartSession,
   onRenameTodo,
 }: Props) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const renderItems = useMemo(() => groupMessages(messages), [messages]);
 
   // Auto-scroll only when the user is already pinned to the bottom. If they've
@@ -130,6 +130,37 @@ export function ChatPanel({
     // re-fire this effect on its own state change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
+
+  // When the chat-log itself resizes (composer grew — e.g. vim mode mounting,
+  // textarea auto-sizing, slash-command menu appearing), the browser leaves
+  // scrollTop where it was, so the previous "bottom" slides out of view. If
+  // the user is pinned, re-snap to the new bottom on every resize.
+  //
+  // Implemented as a callback ref instead of a useEffect because the chat-log
+  // mounts conditionally (only when a todo is selected and a session exists).
+  // A useEffect with [] deps would run once on first paint with no chat-log
+  // present, see scrollRef.current === null, and never attach the observer.
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const setScrollRef = useCallback((node: HTMLDivElement | null) => {
+    scrollRef.current = node;
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (!pinnedRef.current) return;
+      // Double rAF so we land *after* layout settles. CodeMirror (vim mode)
+      // can resize across multiple frames as it initializes; one rAF can
+      // snap to an intermediate height.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const cur = scrollRef.current;
+          if (cur) cur.scrollTop = cur.scrollHeight;
+        });
+      });
+    });
+    ro.observe(node);
+    resizeObserverRef.current = ro;
+  }, []);
 
   const onChatScroll = () => {
     const el = scrollRef.current;
@@ -206,7 +237,7 @@ export function ChatPanel({
             <ClaudeTodoPanel todos={session.claude_todos} />
           )}
           <div className="chat-log-wrap">
-            <div ref={scrollRef} className="chat-log" onScroll={onChatScroll}>
+            <div ref={setScrollRef} className="chat-log" onScroll={onChatScroll}>
               {messages.length === 0 && (
                 <div className="chat-hint">type a message below to kick off the agent</div>
               )}
