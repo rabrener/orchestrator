@@ -1,7 +1,13 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
-export const JINNI_ROOT = join(homedir(), "Documents", "jinni");
+// Workspace root = the directory whose immediate children are the repos this
+// orchestrator manages. Defaults to the grandparent of cwd, which matches the
+// `<workspace>/orchestrator/ui` layout that `npm run dev` is launched from.
+// Override with $ORCHESTRATOR_WORKSPACE_ROOT for any other layout.
+export const WORKSPACE_ROOT =
+  process.env.ORCHESTRATOR_WORKSPACE_ROOT ?? resolve(process.cwd(), "..", "..");
+
 export const DATA_ROOT = join(homedir(), ".jinni-todo");
 export const SESSIONS_DIR = join(DATA_ROOT, "sessions");
 export const ARCHIVE_DIR = join(DATA_ROOT, "archive");

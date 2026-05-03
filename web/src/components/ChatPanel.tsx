@@ -3,9 +3,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Send, Square } from "lucide-react";
 import { ModePicker } from "./ModePicker.js";
+import { api } from "../api.js";
 import type {
   ChatMessage,
   ClaudeTodo,
+  CodexStatus,
   PendingPermission,
   PermissionMode,
   SessionMeta,
@@ -170,8 +172,19 @@ export function ChatPanel({
           />
           {session && (
             <div className="chat-subhead">
-              <span className={`status-pill ${session.status}`}>{session.status}</span>
-              <span className="cwd">cwd: ~/Documents/jinni</span>
+              {session.codex_review_active ? (
+                <span
+                  className="status-pill reviewing"
+                  title={`agent: ${session.status} · codex review running`}
+                >
+                  reviewing
+                </span>
+              ) : (
+                <span className={`status-pill ${session.status}`}>{session.status}</span>
+              )}
+              <span className="cwd" title={session.cwd}>
+                cwd: {prettyCwd(session.cwd)}
+              </span>
               <ContextMeter session={session} />
             </div>
           )}
@@ -238,9 +251,7 @@ export function ChatPanel({
               value={session.permission_mode}
               onChange={onSetMode}
             />
-            <button className="btn-secondary" onClick={onCodexReview}>
-              ⚡ codex review
-            </button>
+            <CodexReviewControl onCodexReview={onCodexReview} />
             <button className="btn-primary" onClick={onComplete}>
               ✓ mark done
             </button>
@@ -317,6 +328,13 @@ function EditableTitle({
   );
 }
 
+// Replace the user's home prefix with `~` for compact display, regardless of
+// whether the server runs on linux (/home/<user>) or macOS (/Users/<user>).
+function prettyCwd(cwd: string): string {
+  const m = cwd.match(/^\/(?:home|Users)\/[^/]+(\/.*)?$/);
+  return m ? "~" + (m[1] ?? "") : cwd;
+}
+
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
@@ -343,6 +361,166 @@ function ContextMeter({ session }: { session: SessionMeta }) {
       </span>
       <span className="context-meter-label">{pct.toFixed(0)}%</span>
     </span>
+  );
+}
+
+function CodexReviewControl({ onCodexReview }: { onCodexReview: () => void }) {
+  const [status, setStatus] = useState<CodexStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const refresh = async (force = false) => {
+    setLoading(true);
+    try {
+      const s = await api.getCodexStatus(force);
+      setStatus(s);
+    } catch {
+      setStatus({
+        installed: false,
+        version: null,
+        error: "probe failed",
+        checked_at: new Date().toISOString(),
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh(false);
+  }, []);
+
+  // Click-outside to close the popover so it doesn't linger when the user
+  // moves on to another part of the UI.
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setPopoverOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [popoverOpen]);
+
+  const ready = !!status?.installed;
+  const chipLabel = loading
+    ? "codex …"
+    : ready
+      ? `codex ✓${status?.version ? ` ${status.version}` : ""}`
+      : "codex · setup";
+  const chipClass = `codex-chip ${ready ? "ready" : "warn"}`;
+
+  return (
+    <div className="codex-review-control" ref={wrapRef}>
+      <button
+        type="button"
+        className={chipClass}
+        onClick={() => setPopoverOpen((v) => !v)}
+        title={
+          ready
+            ? "codex CLI detected — click for details"
+            : "codex CLI not configured — click for setup"
+        }
+        aria-haspopup="dialog"
+        aria-expanded={popoverOpen}
+      >
+        {chipLabel}
+      </button>
+      <button
+        className="btn-secondary"
+        onClick={onCodexReview}
+        disabled={!ready}
+        title={ready ? "Run codex review on dirty subrepos" : "Set up codex first"}
+      >
+        ⚡ codex review
+      </button>
+      {popoverOpen && (
+        <CodexSetupPopover
+          status={status}
+          loading={loading}
+          onRecheck={() => void refresh(true)}
+          onClose={() => setPopoverOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CodexSetupPopover({
+  status,
+  loading,
+  onRecheck,
+  onClose,
+}: {
+  status: CodexStatus | null;
+  loading: boolean;
+  onRecheck: () => void;
+  onClose: () => void;
+}) {
+  const ready = !!status?.installed;
+  return (
+    <div className="codex-popover" role="dialog" aria-label="Codex setup">
+      <div className="codex-popover-header">
+        <span className={`codex-popover-dot ${ready ? "ok" : "warn"}`} aria-hidden="true" />
+        <strong>{ready ? "codex is ready" : "set up codex"}</strong>
+        <button
+          type="button"
+          className="codex-popover-close"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+
+      {ready ? (
+        <p className="codex-popover-body">
+          Detected codex{status?.version ? ` ${status.version}` : ""} on PATH.
+          Clicking <em>codex review</em> scans subrepos in your workspace with
+          uncommitted changes — scoped to the ones touched in this task — and
+          runs <code>codex review</code> in each with a brief distilled from
+          the chat, streaming output here.
+        </p>
+      ) : (
+        <ol className="codex-popover-steps">
+          <li>
+            <div className="codex-step-title">Install the CLI</div>
+            <pre className="codex-step-cmd">npm install -g @openai/codex</pre>
+            <div className="codex-step-hint">requires Node ≥ 20</div>
+          </li>
+          <li>
+            <div className="codex-step-title">Authenticate</div>
+            <pre className="codex-step-cmd">codex login</pre>
+            <div className="codex-step-hint">
+              opens a browser for OAuth — or export{" "}
+              <code>OPENAI_API_KEY</code> in the same shell instead.
+            </div>
+          </li>
+          <li>
+            <div className="codex-step-title">Restart the orchestrator</div>
+            <div className="codex-step-hint">
+              Stop and re-run <code>npm run dev</code> so the server inherits
+              the new login / env.
+            </div>
+          </li>
+        </ol>
+      )}
+
+      {status?.error && (
+        <div className="codex-popover-error">probe error: {status.error}</div>
+      )}
+
+      <div className="codex-popover-actions">
+        <button className="btn-secondary" onClick={onRecheck} disabled={loading}>
+          {loading ? "checking…" : "re-check"}
+        </button>
+        {status?.checked_at && (
+          <span className="codex-popover-meta">
+            last checked {new Date(status.checked_at).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

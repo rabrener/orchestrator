@@ -112,26 +112,6 @@ export function App() {
           },
         };
       });
-    } else if (e.type === "session.codex_output") {
-      setMessages((prev) => {
-        const list = prev[e.payload.todo_id] ?? [];
-        const last = list[list.length - 1];
-        if (last && last.role === "codex" && last.repo === e.payload.repo) {
-          const updated = { ...last, text: last.text + e.payload.chunk };
-          return {
-            ...prev,
-            [e.payload.todo_id]: [...list.slice(0, -1), updated],
-          };
-        }
-        const newMsg: ChatMessage = {
-          id: `codex_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          role: "codex",
-          repo: e.payload.repo,
-          text: e.payload.chunk,
-          ts: new Date().toISOString(),
-        };
-        return { ...prev, [e.payload.todo_id]: [...list, newMsg] };
-      });
     }
   }, []);
 

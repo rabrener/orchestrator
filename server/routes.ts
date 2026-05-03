@@ -9,6 +9,7 @@ import {
 } from "./store.js";
 import { sessionManager } from "./session-manager.js";
 import { runCodexReview } from "./codex-review.js";
+import { probeCodex } from "./codex-status.js";
 import { broadcast } from "./ws.js";
 import { readPreferences, writePreferences } from "./preferences.js";
 import type { Preferences } from "./preferences.js";
@@ -26,6 +27,12 @@ const VALID_MODES: PermissionMode[] = [
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/api/health", async () => ({ ok: true, ts: new Date().toISOString() }));
+
+  // ── Integrations ───────────────────────────────────────────────────
+  app.get<{ Querystring: { refresh?: string } }>(
+    "/api/integrations/codex",
+    async (req) => probeCodex(req.query?.refresh === "1"),
+  );
 
   // ── Slash commands ─────────────────────────────────────────────────
   app.get("/api/slash-commands", async () => ({
@@ -229,14 +236,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         reply.code(404);
         return { error: "session_not_found" };
       }
-      // Fire-and-forget; output streams via WS as it arrives
+      // Fire-and-forget; review messages stream via WS as each repo finishes.
       void runCodexReview(req.params.id, {
-        emitChunk: (todoId, repo, chunk) => {
-          broadcast({
-            type: "session.codex_output",
-            payload: { todo_id: todoId, repo, chunk },
-          });
-        },
         emitMessage: (todoId, message) => {
           broadcast({
             type: "session.message",

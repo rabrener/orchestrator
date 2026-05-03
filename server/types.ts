@@ -58,6 +58,10 @@ export interface SessionMeta {
   context_tokens?: number;
   context_window?: number;
   model?: string;
+  // True while a codex review is currently running for this todo. The agent's
+  // SDK status is independent — codex runs out-of-band — so the UI uses this
+  // flag to override the status pill with a "REVIEWING" indicator.
+  codex_review_active?: boolean;
 }
 
 export interface ChatMessage {
@@ -74,5 +78,4 @@ export type WsEvent =
   | { type: "session.status"; payload: { todo_id: string; status: SessionStatus; meta?: SessionMeta } }
   | { type: "session.message"; payload: { todo_id: string; message: ChatMessage } }
   | { type: "session.permission_request"; payload: { todo_id: string; permission: PendingPermission } }
-  | { type: "session.codex_output"; payload: { todo_id: string; repo: string; chunk: string } }
   | { type: "session.composer_restore"; payload: { todo_id: string; text: string } };

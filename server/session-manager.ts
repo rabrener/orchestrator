@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { JINNI_ROOT } from "./paths.js";
+import { WORKSPACE_ROOT } from "./paths.js";
 import { InputQueue } from "./input-queue.js";
 import { appendMessage, readTranscript } from "./transcript.js";
 import { archiveSession, listAllMetas, readMeta, writeMeta } from "./session-meta.js";
@@ -115,6 +115,10 @@ class ActiveSession {
   model = "";
   contextTokens = 0;
   contextWindow = 0;
+  // True while a codex review is in flight for this todo. Independent of the
+  // SDK status — the agent can be idle while codex is mid-review. The UI
+  // surfaces this as a "REVIEWING" pill that overrides the regular status.
+  codexReviewActive = false;
   // True while the SDK iterator is being consumed. After a stop, the SDK
   // iterator throws and this flips false — the next sendUserMessage respawns
   // the query on the same conversation thread.
@@ -342,7 +346,16 @@ class ActiveSession {
       context_tokens: this.contextTokens || undefined,
       context_window: this.contextWindow || undefined,
       model: this.model || undefined,
+      codex_review_active: this.codexReviewActive || undefined,
     };
+  }
+
+  setCodexReviewActive(active: boolean, listener: Listener): void {
+    if (this.codexReviewActive === active) return;
+    this.codexReviewActive = active;
+    // Reuse the regular status broadcast — it carries the full snapshot, so
+    // the new flag rides along without a new event type.
+    listener.onStatus(this.todoId, this.status, this.snapshot());
   }
 
   private async persistMeta(): Promise<void> {
@@ -456,6 +469,12 @@ class SessionManager {
     return Array.from(this.sessions.values());
   }
 
+  setCodexReviewActive(todoId: string, active: boolean): void {
+    const session = this.sessions.get(todoId);
+    if (!session || !this.listener) return;
+    session.setCodexReviewActive(active, this.listener);
+  }
+
   async start(todoId: string, taskTitle: string, resumeSessionId?: string): Promise<ActiveSession> {
     if (this.sessions.has(todoId)) {
       return this.sessions.get(todoId)!;
@@ -465,7 +484,7 @@ class SessionManager {
     const prefs = await readPreferences().catch(() => null);
     const mode: PermissionMode =
       existingMeta?.permission_mode ?? prefs?.default_permission_mode ?? "default";
-    const session = new ActiveSession(todoId, JINNI_ROOT, taskTitle, mode);
+    const session = new ActiveSession(todoId, WORKSPACE_ROOT, taskTitle, mode);
     if (resumeSessionId) session.sessionId = resumeSessionId;
     if (existingMeta?.claude_todos) session.claudeTodos = existingMeta.claude_todos;
     if (existingMeta?.context_tokens) session.contextTokens = existingMeta.context_tokens;

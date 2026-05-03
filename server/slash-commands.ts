@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { promises as fs, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { JINNI_ROOT } from "./paths.js";
+import { WORKSPACE_ROOT } from "./paths.js";
 
 export interface SlashCommand {
   name: string;
@@ -26,8 +26,8 @@ interface DiscoveryRoot {
 const ROOTS: DiscoveryRoot[] = [
   { dir: join(homedir(), ".claude", "commands"), source: "user-command", layout: "commands" },
   { dir: join(homedir(), ".claude", "skills"), source: "user-skill", layout: "skills" },
-  { dir: join(JINNI_ROOT, ".claude", "commands"), source: "project-command", layout: "commands" },
-  { dir: join(JINNI_ROOT, ".claude", "skills"), source: "project-skill", layout: "skills" },
+  { dir: join(WORKSPACE_ROOT, ".claude", "commands"), source: "project-command", layout: "commands" },
+  { dir: join(WORKSPACE_ROOT, ".claude", "skills"), source: "project-skill", layout: "skills" },
 ];
 
 // Minimal frontmatter parser. We only need `description` and `argument-hint`,

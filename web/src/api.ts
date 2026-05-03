@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  CodexStatus,
   PermissionMode,
   SessionMeta,
   SlashCommand,
@@ -73,6 +74,10 @@ export const api = {
     }),
   codexReview: (todoId: string) =>
     jsonFetch(`/api/sessions/${todoId}/codex-review`, { method: "POST" }),
+  getCodexStatus: (refresh = false) =>
+    jsonFetch<CodexStatus>(
+      `/api/integrations/codex${refresh ? "?refresh=1" : ""}`,
+    ),
   stopSession: (todoId: string) =>
     jsonFetch(`/api/sessions/${todoId}/stop`, { method: "POST" }),
 

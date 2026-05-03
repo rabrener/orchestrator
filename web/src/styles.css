@@ -443,6 +443,12 @@ textarea {
   color: var(--text-mute);
   border-color: var(--border);
 }
+.status-pill.reviewing {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(122, 162, 247, 0.1);
+  animation: pulse 1.5s ease-in-out infinite;
+}
 @keyframes pulse {
   0%,
   100% {
@@ -924,6 +930,155 @@ textarea {
 }
 .msg-codex .msg-text {
   font-family: var(--mono);
+}
+
+/* ── Codex review control (chip + button + setup popover) ──────────── */
+.codex-review-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.codex-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  color: var(--text-mute);
+  cursor: pointer;
+  line-height: 1.4;
+}
+.codex-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.codex-chip.ready {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.codex-chip.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.codex-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 50;
+  font-size: 12px;
+  color: var(--text);
+}
+.codex-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.codex-popover-header strong {
+  flex: 1;
+}
+.codex-popover-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-mute);
+  flex-shrink: 0;
+}
+.codex-popover-dot.ok {
+  background: var(--accent);
+}
+.codex-popover-dot.warn {
+  background: var(--warn);
+}
+.codex-popover-close {
+  background: transparent;
+  border: none;
+  color: var(--text-mute);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.codex-popover-close:hover {
+  color: var(--text);
+}
+.codex-popover-body {
+  margin: 0 0 8px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.codex-popover-body code,
+.codex-step-hint code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--bg-elev-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.codex-popover-steps {
+  margin: 0 0 10px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.codex-popover-steps li {
+  line-height: 1.4;
+}
+.codex-step-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.codex-step-cmd {
+  margin: 0 0 4px;
+  padding: 6px 8px;
+  background: var(--bg-elev-2);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.codex-step-hint {
+  color: var(--text-mute);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.codex-popover-error {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(224, 175, 104, 0.1);
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: 11px;
+  word-break: break-word;
+}
+.codex-popover-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.codex-popover-actions .btn-secondary {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+.codex-popover-meta {
+  color: var(--text-mute);
+  font-size: 11px;
 }
 
 .permission-prompt {

@@ -47,6 +47,7 @@ export interface SessionMeta {
   context_tokens?: number;
   context_window?: number;
   model?: string;
+  codex_review_active?: boolean;
 }
 
 export interface SlashCommand {
@@ -66,10 +67,16 @@ export interface ChatMessage {
   repo?: string;
 }
 
+export interface CodexStatus {
+  installed: boolean;
+  version: string | null;
+  error: string | null;
+  checked_at: string;
+}
+
 export type WsEvent =
   | { type: "todos.updated"; payload: Todo[] }
   | { type: "session.status"; payload: { todo_id: string; status: SessionStatus; meta?: SessionMeta } }
   | { type: "session.message"; payload: { todo_id: string; message: ChatMessage } }
   | { type: "session.permission_request"; payload: { todo_id: string; permission: PendingPermission } }
-  | { type: "session.codex_output"; payload: { todo_id: string; repo: string; chunk: string } }
   | { type: "session.composer_restore"; payload: { todo_id: string; text: string } };
