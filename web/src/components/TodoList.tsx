@@ -163,12 +163,21 @@ export function TodoList({
         </button>
         <span className="todo-title">{t.title}</span>
         {session ? (
-          <span
-            className={`status-pill ${session.status}`}
-            title={`agent: ${session.status}`}
-          >
-            {STATUS_LABEL[session.status]}
-          </span>
+          session.codex_review_active ? (
+            <span
+              className="status-pill reviewing"
+              title={`agent: ${session.status} · codex review running`}
+            >
+              reviewing
+            </span>
+          ) : (
+            <span
+              className={`status-pill ${session.status}`}
+              title={`agent: ${session.status}`}
+            >
+              {STATUS_LABEL[session.status]}
+            </span>
+          )
         ) : (
           <button
             className="todo-action start"
