@@ -19,6 +19,14 @@ export interface Todo {
   created_at: string;
   completed_at: string | null;
   session_id: string | null;
+  cwd?: string | null;
+}
+
+export interface FsListing {
+  path: string;
+  parent: string | null;
+  home: string;
+  entries: Array<{ name: string; path: string; is_dir: boolean }>;
 }
 
 export interface PendingPermission {

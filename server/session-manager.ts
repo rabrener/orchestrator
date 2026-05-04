@@ -8,8 +8,9 @@ import { WORKSPACE_ROOT } from "./paths.js";
 import { InputQueue } from "./input-queue.js";
 import { appendMessage, readTranscript } from "./transcript.js";
 import { archiveSession, listAllMetas, readMeta, writeMeta } from "./session-meta.js";
-import { readPreferences } from "./preferences.js";
+import { readPreferences, resolvePreferredCwd } from "./preferences.js";
 import { listTodos, setTodoSessionId } from "./store.js";
+import { stat } from "node:fs/promises";
 import type {
   ChatMessage,
   ClaudeTodo,
@@ -74,6 +75,31 @@ if (CLAUDE_EXECUTABLE) {
   console.warn(
     "[orchestrator-ui] no claude executable found on PATH or in ~/.local/bin; falling back to SDK bundled binary",
   );
+}
+
+async function isUsableDir(p: string | null | undefined): Promise<boolean> {
+  if (!p) return false;
+  try {
+    const s = await stat(p);
+    return s.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// Per-todo override beats the prefs default beats the cwd remembered from the
+// last session (resume) beats WORKSPACE_ROOT. Each candidate is stat()'d so a
+// stale path falls through cleanly instead of crashing the SDK at spawn time.
+async function resolveSessionCwd(
+  todoCwd: string | null,
+  prefs: { default_cwd: string | null } | null,
+  metaCwd: string | null,
+): Promise<string> {
+  if (await isUsableDir(todoCwd)) return todoCwd as string;
+  if (prefs && (await isUsableDir(prefs.default_cwd))) return prefs.default_cwd as string;
+  if (await isUsableDir(metaCwd)) return metaCwd as string;
+  if (prefs) return resolvePreferredCwd(prefs as Parameters<typeof resolvePreferredCwd>[0]);
+  return WORKSPACE_ROOT;
 }
 
 type Listener = {
@@ -475,7 +501,12 @@ class SessionManager {
     session.setCodexReviewActive(active, this.listener);
   }
 
-  async start(todoId: string, taskTitle: string, resumeSessionId?: string): Promise<ActiveSession> {
+  async start(
+    todoId: string,
+    taskTitle: string,
+    resumeSessionId?: string,
+    todoCwd?: string | null,
+  ): Promise<ActiveSession> {
     if (this.sessions.has(todoId)) {
       return this.sessions.get(todoId)!;
     }
@@ -484,7 +515,13 @@ class SessionManager {
     const prefs = await readPreferences().catch(() => null);
     const mode: PermissionMode =
       existingMeta?.permission_mode ?? prefs?.default_permission_mode ?? "default";
-    const session = new ActiveSession(todoId, WORKSPACE_ROOT, taskTitle, mode);
+
+    // Resolve cwd: per-todo override → preferred default → meta (resume) →
+    // workspace root. The meta cwd is only used as a fallback for resume so a
+    // user-set per-todo cwd can override it on the next start.
+    const cwd = await resolveSessionCwd(todoCwd ?? null, prefs, existingMeta?.cwd ?? null);
+
+    const session = new ActiveSession(todoId, cwd, taskTitle, mode);
     if (resumeSessionId) session.sessionId = resumeSessionId;
     if (existingMeta?.claude_todos) session.claudeTodos = existingMeta.claude_todos;
     if (existingMeta?.context_tokens) session.contextTokens = existingMeta.context_tokens;
@@ -527,12 +564,18 @@ class SessionManager {
 
   async resumeAll(): Promise<void> {
     const [metas, todos] = await Promise.all([listAllMetas(), listTodos()]);
-    const titleById = new Map(todos.map((t) => [t.id, t.title] as const));
+    const todoById = new Map(todos.map((t) => [t.id, t] as const));
     for (const meta of metas) {
       if (meta.status === "done" || meta.status === "error") continue;
       if (this.sessions.has(meta.todo_id)) continue;
+      const todo = todoById.get(meta.todo_id);
       try {
-        await this.start(meta.todo_id, titleById.get(meta.todo_id) ?? "", meta.session_id);
+        await this.start(
+          meta.todo_id,
+          todo?.title ?? "",
+          meta.session_id,
+          todo?.cwd ?? null,
+        );
       } catch (err) {
         console.error(`resume failed for ${meta.todo_id}`, err);
       }

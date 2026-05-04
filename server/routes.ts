@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import { stat } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import {
   addTodo,
   completeTodo,
@@ -6,7 +8,9 @@ import {
   removeTodo,
   renameTodo,
   reorderTodos,
+  setTodoCwd,
 } from "./store.js";
+import { listDirectory } from "./fs-browser.js";
 import { sessionManager } from "./session-manager.js";
 import { runCodexReview } from "./codex-review.js";
 import { probeCodex } from "./codex-status.js";
@@ -39,6 +43,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     commands: await discoverSlashCommands(),
   }));
 
+  // ── Filesystem browser ─────────────────────────────────────────────
+  app.get<{ Querystring: { path?: string } }>("/api/fs/list", async (req, reply) => {
+    const path = req.query?.path?.trim();
+    if (!path) {
+      reply.code(400);
+      return { error: "path_required" };
+    }
+    const result = await listDirectory(path);
+    if (!result.ok) {
+      reply.code(result.error === "not_absolute" ? 400 : 404);
+      return { error: result.error };
+    }
+    return result.listing;
+  });
+
   // ── Preferences ────────────────────────────────────────────────────
   app.get("/api/preferences", async () => ({ preferences: await readPreferences() }));
   app.put<{ Body: Partial<Preferences> }>(
@@ -60,19 +79,57 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { todo };
   });
 
-  app.patch<{ Params: { id: string }; Body: { title?: string } }>(
+  app.patch<{ Params: { id: string }; Body: { title?: string; cwd?: string | null } }>(
     "/api/todos/:id",
     async (req, reply) => {
-      const title = req.body?.title?.trim();
-      if (!title) {
+      const { title: rawTitle, cwd: rawCwd } = req.body ?? {};
+      const wantsTitle = typeof rawTitle === "string";
+      const wantsCwd = rawCwd !== undefined;
+
+      if (!wantsTitle && !wantsCwd) {
         reply.code(400);
-        return { error: "title_required" };
+        return { error: "no_fields_provided" };
       }
-      const updated = await renameTodo(req.params.id, title);
-      if (!updated) {
-        reply.code(404);
-        return { error: "not_found" };
+
+      let updated = null as Awaited<ReturnType<typeof renameTodo>>;
+
+      if (wantsTitle) {
+        const title = rawTitle!.trim();
+        if (!title) {
+          reply.code(400);
+          return { error: "title_required" };
+        }
+        updated = await renameTodo(req.params.id, title);
+        if (!updated) {
+          reply.code(404);
+          return { error: "not_found" };
+        }
       }
+
+      if (wantsCwd) {
+        if (rawCwd !== null) {
+          if (typeof rawCwd !== "string" || !isAbsolute(rawCwd)) {
+            reply.code(400);
+            return { error: "cwd_must_be_absolute" };
+          }
+          try {
+            const s = await stat(rawCwd);
+            if (!s.isDirectory()) {
+              reply.code(400);
+              return { error: "cwd_not_a_directory" };
+            }
+          } catch {
+            reply.code(400);
+            return { error: "cwd_does_not_exist" };
+          }
+        }
+        updated = await setTodoCwd(req.params.id, rawCwd);
+        if (!updated) {
+          reply.code(404);
+          return { error: "not_found" };
+        }
+      }
+
       broadcast({ type: "todos.updated", payload: await listTodos() });
       return { todo: updated };
     },
@@ -143,6 +200,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       req.params.id,
       todo.title,
       todo.session_id ?? undefined,
+      todo.cwd ?? null,
     );
     const messages = await sessionManager.getTranscript(req.params.id);
     return { session: session.snapshot(), messages };

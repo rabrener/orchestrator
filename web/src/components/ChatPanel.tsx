@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Send, Square } from "lucide-react";
 import { ModePicker } from "./ModePicker.js";
+import { DirectoryPickerDialog } from "./DirectoryPickerDialog.js";
 import { api } from "../api.js";
 import type {
   ChatMessage,
@@ -60,6 +61,7 @@ interface Props {
   onStop: () => void;
   onStartSession: () => void;
   onRenameTodo: (id: string, title: string) => void;
+  onSetTodoCwd: (id: string, cwd: string | null) => Promise<void>;
 }
 
 export function ChatPanel({
@@ -76,7 +78,9 @@ export function ChatPanel({
   onStop,
   onStartSession,
   onRenameTodo,
+  onSetTodoCwd,
 }: Props) {
+  const [cwdPickerOpen, setCwdPickerOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const renderItems = useMemo(() => groupMessages(messages), [messages]);
 
@@ -213,10 +217,21 @@ export function ChatPanel({
               ) : (
                 <span className={`status-pill ${session.status}`}>{session.status}</span>
               )}
-              <span className="cwd" title={session.cwd}>
-                cwd: {prettyCwd(session.cwd)}
-              </span>
+              <CwdChip
+                sessionCwd={session.cwd}
+                todoCwd={todo.cwd ?? null}
+                onClick={() => setCwdPickerOpen(true)}
+              />
               <ContextMeter session={session} />
+            </div>
+          )}
+          {!session && (
+            <div className="chat-subhead">
+              <CwdChip
+                sessionCwd={null}
+                todoCwd={todo.cwd ?? null}
+                onClick={() => setCwdPickerOpen(true)}
+              />
             </div>
           )}
         </div>
@@ -285,14 +300,74 @@ export function ChatPanel({
               value={session.permission_mode}
               onChange={onSetMode}
             />
-            <CodexReviewControl onCodexReview={onCodexReview} />
+            <CodexReviewControl
+              onCodexReview={onCodexReview}
+              reviewActive={!!session.codex_review_active}
+            />
             <button className="btn-primary" onClick={onComplete}>
               ✓ mark done
             </button>
           </footer>
         </>
       )}
+
+      {cwdPickerOpen && (
+        <DirectoryPickerDialog
+          title={`cwd for "${todo.title}"`}
+          initialPath={todo.cwd ?? session?.cwd ?? "~"}
+          confirmLabel="Use for this task"
+          onCancel={() => setCwdPickerOpen(false)}
+          onConfirm={async (path) => {
+            await onSetTodoCwd(todo.id, path);
+            setCwdPickerOpen(false);
+          }}
+          onClear={
+            todo.cwd
+              ? async () => {
+                  await onSetTodoCwd(todo.id, null);
+                  setCwdPickerOpen(false);
+                }
+              : undefined
+          }
+        />
+      )}
     </section>
+  );
+}
+
+function CwdChip({
+  sessionCwd,
+  todoCwd,
+  onClick,
+}: {
+  // null when no agent is running yet — we show what the next session WILL use
+  sessionCwd: string | null;
+  todoCwd: string | null;
+  onClick: () => void;
+}) {
+  // Active session is the source of truth when present, since the user may
+  // have changed the override after the session launched and we want them to
+  // see the discrepancy. Show a warn dot in that case.
+  const display = sessionCwd ?? todoCwd ?? "(default)";
+  const drift = !!sessionCwd && !!todoCwd && sessionCwd !== todoCwd;
+  const title = drift
+    ? `running in: ${sessionCwd}\noverride for next session: ${todoCwd}\nClick to change.`
+    : sessionCwd
+      ? `running in: ${sessionCwd}\nClick to change for the next session.`
+      : todoCwd
+        ? `next session will run in: ${todoCwd}\nClick to change.`
+        : `next session will use the default cwd from preferences. Click to override.`;
+
+  return (
+    <button
+      type="button"
+      className={`cwd cwd-btn${drift ? " drift" : ""}`}
+      title={title}
+      onClick={onClick}
+    >
+      cwd: {prettyCwd(display)}
+      {drift && <span className="cwd-drift-dot" aria-hidden="true">●</span>}
+    </button>
   );
 }
 
@@ -398,7 +473,13 @@ function ContextMeter({ session }: { session: SessionMeta }) {
   );
 }
 
-function CodexReviewControl({ onCodexReview }: { onCodexReview: () => void }) {
+function CodexReviewControl({
+  onCodexReview,
+  reviewActive,
+}: {
+  onCodexReview: () => void;
+  reviewActive: boolean;
+}) {
   const [status, setStatus] = useState<CodexStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -463,10 +544,16 @@ function CodexReviewControl({ onCodexReview }: { onCodexReview: () => void }) {
       <button
         className="btn-secondary"
         onClick={onCodexReview}
-        disabled={!ready}
-        title={ready ? "Run codex review on dirty subrepos" : "Set up codex first"}
+        disabled={!ready || reviewActive}
+        title={
+          reviewActive
+            ? "Codex review is already running"
+            : ready
+              ? "Run codex review on dirty subrepos"
+              : "Set up codex first"
+        }
       >
-        ⚡ codex review
+        {reviewActive ? "⚡ codex review …" : "⚡ codex review"}
       </button>
       {popoverOpen && (
         <CodexSetupPopover

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   applyPreferences,
   FONT_SIZES,
@@ -9,6 +9,7 @@ import {
   type Theme,
 } from "../api.js";
 import { ModePicker } from "./ModePicker.js";
+import { DirectoryPickerDialog } from "./DirectoryPickerDialog.js";
 
 interface Props {
   preferences: Preferences;
@@ -17,13 +18,17 @@ interface Props {
 }
 
 export function SettingsPanel({ preferences, onChange, onClose }: Props) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      // The picker installs its own Escape handler that should win when open;
+      // only collapse the settings overlay when no nested dialog is up.
+      if (e.key === "Escape" && !pickerOpen) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, pickerOpen]);
 
   const setTheme = (theme: Theme) => {
     const next = { ...preferences, theme };
@@ -37,6 +42,9 @@ export function SettingsPanel({ preferences, onChange, onClose }: Props) {
   };
   const setDefaultMode = (default_permission_mode: PermissionMode) => {
     onChange({ ...preferences, default_permission_mode });
+  };
+  const setDefaultCwd = (default_cwd: string | null) => {
+    onChange({ ...preferences, default_cwd });
   };
 
   return (
@@ -98,10 +106,52 @@ export function SettingsPanel({ preferences, onChange, onClose }: Props) {
           </p>
         </section>
 
+        <section className="settings-section">
+          <h3>Default working directory</h3>
+          <div className="settings-cwd-row">
+            <code className="settings-cwd-value">
+              {preferences.default_cwd ?? "(workspace root)"}
+            </code>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setPickerOpen(true)}
+            >
+              choose…
+            </button>
+            {preferences.default_cwd && (
+              <button
+                type="button"
+                className="btn-tertiary"
+                onClick={() => setDefaultCwd(null)}
+                title="Fall back to the orchestrator's workspace root"
+              >
+                reset
+              </button>
+            )}
+          </div>
+          <p className="settings-hint">
+            New agents start here unless a to-do has its own override. Already-running
+            sessions keep the cwd they were launched with.
+          </p>
+        </section>
+
         <p className="settings-hint settings-footer">
           Stored at <code>~/.config/orchestrator-ui/preferences.json</code> — not in git.
         </p>
       </div>
+      {pickerOpen && (
+        <DirectoryPickerDialog
+          title="Default working directory"
+          initialPath={preferences.default_cwd ?? "~"}
+          confirmLabel="Use as default"
+          onCancel={() => setPickerOpen(false)}
+          onConfirm={(path) => {
+            setDefaultCwd(path);
+            setPickerOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

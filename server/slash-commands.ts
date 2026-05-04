@@ -3,6 +3,7 @@ import { promises as fs, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { WORKSPACE_ROOT } from "./paths.js";
+import { readPreferences, resolvePreferredCwd } from "./preferences.js";
 
 export interface SlashCommand {
   name: string;
@@ -23,12 +24,14 @@ interface DiscoveryRoot {
   layout: "commands" | "skills";
 }
 
-const ROOTS: DiscoveryRoot[] = [
-  { dir: join(homedir(), ".claude", "commands"), source: "user-command", layout: "commands" },
-  { dir: join(homedir(), ".claude", "skills"), source: "user-skill", layout: "skills" },
-  { dir: join(WORKSPACE_ROOT, ".claude", "commands"), source: "project-command", layout: "commands" },
-  { dir: join(WORKSPACE_ROOT, ".claude", "skills"), source: "project-skill", layout: "skills" },
-];
+function rootsForCwd(projectCwd: string): DiscoveryRoot[] {
+  return [
+    { dir: join(homedir(), ".claude", "commands"), source: "user-command", layout: "commands" },
+    { dir: join(homedir(), ".claude", "skills"), source: "user-skill", layout: "skills" },
+    { dir: join(projectCwd, ".claude", "commands"), source: "project-command", layout: "commands" },
+    { dir: join(projectCwd, ".claude", "skills"), source: "project-skill", layout: "skills" },
+  ];
+}
 
 // Minimal frontmatter parser. We only need `description` and `argument-hint`,
 // and skill SKILL.md uses block-scalar (`description: |`) form. Anything fancier
@@ -160,16 +163,20 @@ const BUILTIN_DESCRIPTIONS: Record<string, string> = {
   heapdump: "Dump heap snapshot for debugging",
 };
 
-let fsCache: { value: SlashCommand[]; ts: number } | null = null;
+// Cache keyed by project cwd so switching the default cwd in preferences
+// surfaces a fresh project-level command set on the next request.
+let fsCache: { key: string; value: SlashCommand[]; ts: number } | null = null;
 const FS_CACHE_MS = 5_000;
 
 let sdkNamesCache: { value: string[]; ts: number } | null = null;
 const SDK_CACHE_MS = 5 * 60_000;
 
-async function fsDiscover(): Promise<SlashCommand[]> {
-  if (fsCache && Date.now() - fsCache.ts < FS_CACHE_MS) return fsCache.value;
+async function fsDiscover(projectCwd: string): Promise<SlashCommand[]> {
+  if (fsCache && fsCache.key === projectCwd && Date.now() - fsCache.ts < FS_CACHE_MS) {
+    return fsCache.value;
+  }
   const all: SlashCommand[] = [];
-  for (const root of ROOTS) {
+  for (const root of rootsForCwd(projectCwd)) {
     const cmds =
       root.layout === "commands"
         ? await discoverCommandsDir(root)
@@ -179,7 +186,7 @@ async function fsDiscover(): Promise<SlashCommand[]> {
   const byName = new Map<string, SlashCommand>();
   for (const cmd of all) byName.set(cmd.name, cmd);
   const value = Array.from(byName.values());
-  fsCache = { value, ts: Date.now() };
+  fsCache = { key: projectCwd, value, ts: Date.now() };
   return value;
 }
 
@@ -236,8 +243,9 @@ async function probeSdkSlashCommands(): Promise<string[]> {
   }
 }
 
-export async function discoverSlashCommands(): Promise<SlashCommand[]> {
-  const [fsCmds, sdkNames] = await Promise.all([fsDiscover(), probeSdkSlashCommands()]);
+export async function discoverSlashCommands(projectCwd?: string): Promise<SlashCommand[]> {
+  const cwd = projectCwd ?? (await resolveProjectCwd());
+  const [fsCmds, sdkNames] = await Promise.all([fsDiscover(cwd), probeSdkSlashCommands()]);
   const byName = new Map<string, SlashCommand>();
   for (const cmd of fsCmds) byName.set(cmd.name, cmd);
   // Augment with SDK-only names — these are typically built-ins (/compact,
@@ -256,4 +264,13 @@ export async function discoverSlashCommands(): Promise<SlashCommand[]> {
 
 export async function getSdkSlashCommandNames(): Promise<string[]> {
   return probeSdkSlashCommands();
+}
+
+async function resolveProjectCwd(): Promise<string> {
+  try {
+    const prefs = await readPreferences();
+    return await resolvePreferredCwd(prefs);
+  } catch {
+    return WORKSPACE_ROOT;
+  }
 }

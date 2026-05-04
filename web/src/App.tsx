@@ -197,6 +197,20 @@ export function App() {
     }
   };
 
+  const onSetTodoCwd = async (id: string, cwd: string | null) => {
+    const prev = todos;
+    setTodos((current) =>
+      current.map((t) => (t.id === id ? { ...t, cwd } : t)),
+    );
+    try {
+      await api.setTodoCwd(id, cwd);
+    } catch (err) {
+      setError(String(err));
+      setTodos(prev);
+      throw err;
+    }
+  };
+
   const onCompleteTodo = async (id: string) => {
     try {
       await api.completeTodo(id);
@@ -379,6 +393,7 @@ export function App() {
           onStop={onStopSession}
           onStartSession={() => selectedTodo && onStartSession(selectedTodo.id)}
           onRenameTodo={onRenameTodo}
+          onSetTodoCwd={onSetTodoCwd}
         />
       </div>
     </div>

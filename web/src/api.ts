@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   CodexStatus,
+  FsListing,
   PermissionMode,
   SessionMeta,
   SlashCommand,
@@ -36,6 +37,13 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ title }),
     }).then((r) => r.todo),
+  setTodoCwd: (id: string, cwd: string | null) =>
+    jsonFetch<{ todo: Todo }>(`/api/todos/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ cwd }),
+    }).then((r) => r.todo),
+  listDirectory: (path: string) =>
+    jsonFetch<FsListing>(`/api/fs/list?path=${encodeURIComponent(path)}`),
   completeTodo: (id: string) =>
     jsonFetch<{ todo: Todo }>(`/api/todos/${id}/complete`, { method: "POST" }).then(
       (r) => r.todo,
@@ -154,6 +162,7 @@ export interface Preferences {
   theme: Theme;
   font_size: FontSize;
   default_permission_mode: PermissionMode;
+  default_cwd: string | null;
 }
 
 export function applyPreferences(prefs: Preferences): void {

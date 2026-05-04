@@ -19,6 +19,11 @@ export interface Todo {
   created_at: string;
   completed_at: string | null;
   session_id: string | null;
+  // Per-task cwd override. When set, new sessions for this todo run here
+  // instead of the preferences default. Changes only apply to sessions
+  // started after the change — a running session keeps the cwd it was
+  // launched with.
+  cwd?: string | null;
 }
 
 export interface TodayFile {

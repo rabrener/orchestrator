@@ -19,14 +19,14 @@ interface CodexEmitters {
   emitMessage: (todoId: string, message: ChatMessage) => void;
 }
 
-async function findDirtySubrepos(): Promise<string[]> {
-  const entries = await readdir(WORKSPACE_ROOT, { withFileTypes: true });
+async function findDirtySubrepos(rootDir: string): Promise<string[]> {
+  const entries = await readdir(rootDir, { withFileTypes: true });
   // Any immediate child directory is a candidate. Non-git dirs and bare
   // directories will fail `git status --porcelain` below and get filtered out,
   // so no need for a name-prefix allowlist.
   const candidates = entries
     .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-    .map((e) => join(WORKSPACE_ROOT, e.name));
+    .map((e) => join(rootDir, e.name));
 
   const dirty: string[] = [];
   for (const dir of candidates) {
@@ -53,11 +53,11 @@ const MUTATING_TOOLS = new Set([
 ]);
 
 // Map an absolute file path back to a workspace subrepo, returning the repo
-// name (the immediate child of WORKSPACE_ROOT) or null if the path doesn't
-// live under the workspace.
-function repoForPath(filePath: string): string | null {
-  if (!filePath.startsWith(WORKSPACE_ROOT + "/")) return null;
-  const rel = filePath.slice(WORKSPACE_ROOT.length + 1);
+// name (the immediate child of rootDir) or null if the path doesn't live
+// under the active session's root.
+function repoForPath(filePath: string, rootDir: string): string | null {
+  if (!filePath.startsWith(rootDir + "/")) return null;
+  const rel = filePath.slice(rootDir.length + 1);
   const firstSeg = rel.split("/")[0];
   return firstSeg || null;
 }
@@ -67,7 +67,7 @@ interface TouchedReposResult {
   hadToolEvidence: boolean;
 }
 
-function extractTouchedRepos(messages: ChatMessage[]): TouchedReposResult {
+function extractTouchedRepos(messages: ChatMessage[], rootDir: string): TouchedReposResult {
   const repos = new Set<string>();
   let hadToolEvidence = false;
   for (const m of messages) {
@@ -77,7 +77,7 @@ function extractTouchedRepos(messages: ChatMessage[]): TouchedReposResult {
     try {
       const input = JSON.parse(m.text) as { file_path?: unknown };
       if (typeof input.file_path === "string") {
-        const repo = repoForPath(input.file_path);
+        const repo = repoForPath(input.file_path, rootDir);
         if (repo) repos.add(repo);
       }
     } catch {
@@ -196,7 +196,10 @@ export async function runCodexReview(
   // it on every exit path, including thrown errors and early returns.
   sessionManager.setCodexReviewActive(todoId, true);
   try {
-    return await runCodexReviewInner(todoId, emitters);
+    // Scan the active session's cwd, not the global workspace root — the user
+    // may have pointed this todo at a different directory.
+    const rootDir = sessionManager.get(todoId)?.cwd ?? WORKSPACE_ROOT;
+    return await runCodexReviewInner(todoId, emitters, rootDir);
   } finally {
     sessionManager.setCodexReviewActive(todoId, false);
   }
@@ -205,9 +208,10 @@ export async function runCodexReview(
 async function runCodexReviewInner(
   todoId: string,
   emitters: CodexEmitters,
+  rootDir: string,
 ): Promise<void> {
 
-  const dirty = await findDirtySubrepos();
+  const dirty = await findDirtySubrepos(rootDir);
   if (dirty.length === 0) {
     const noneMsg: ChatMessage = {
       id: `cdx_${nanoid(8)}`,
@@ -224,7 +228,7 @@ async function runCodexReviewInner(
   // tool calls). A repo that's dirty from prior unrelated work shouldn't be
   // reviewed under the brief for *this* task.
   const transcript = await readTranscript(todoId);
-  const { repos: touched, hadToolEvidence } = extractTouchedRepos(transcript);
+  const { repos: touched, hadToolEvidence } = extractTouchedRepos(transcript, rootDir);
 
   let scoped: string[];
   let scopeNote: string;

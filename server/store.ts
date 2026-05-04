@@ -239,6 +239,18 @@ export async function setTodoSessionId(todoId: string, sessionId: string | null)
   });
 }
 
+export async function setTodoCwd(todoId: string, cwd: string | null): Promise<Todo | null> {
+  let updated: Todo | null = null;
+  await mutate((file) => {
+    const todo = file.todos.find((t) => t.id === todoId);
+    if (todo) {
+      todo.cwd = cwd && cwd.length > 0 ? cwd : null;
+      updated = todo;
+    }
+  });
+  return updated;
+}
+
 export function pathsForTodo(todoId: string) {
   return {
     sessionDir: sessionDir(todoId),
