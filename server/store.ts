@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { nanoid } from "nanoid";
-import { DATA_ROOT, SESSIONS_DIR, ARCHIVE_DIR, todayLocal, todayFilePath, sessionDir, archiveDir } from "./paths.js";
+import { DATA_ROOT, LEGACY_DATA_ROOT, SESSIONS_DIR, ARCHIVE_DIR, todayLocal, todayFilePath, sessionDir, archiveDir } from "./paths.js";
 import type { TodayFile, Todo } from "./types.js";
 
 let writeChain: Promise<unknown> = Promise.resolve();
@@ -14,7 +14,18 @@ let writeChain: Promise<unknown> = Promise.resolve();
 let lastRolledForwardDate: string | null = null;
 let rollForwardInFlight: Promise<void> | null = null;
 
+async function migrateLegacyDataRoot(): Promise<void> {
+  if (LEGACY_DATA_ROOT === DATA_ROOT) return;
+  try {
+    await rename(LEGACY_DATA_ROOT, DATA_ROOT);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT" && code !== "ENOTEMPTY" && code !== "EEXIST") throw err;
+  }
+}
+
 async function ensureDirs(): Promise<void> {
+  await migrateLegacyDataRoot();
   await mkdir(DATA_ROOT, { recursive: true });
   await mkdir(SESSIONS_DIR, { recursive: true });
   await mkdir(ARCHIVE_DIR, { recursive: true });

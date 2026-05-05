@@ -8,9 +8,13 @@ import { join, resolve } from "node:path";
 export const WORKSPACE_ROOT =
   process.env.ORCHESTRATOR_WORKSPACE_ROOT ?? resolve(process.cwd(), "..", "..");
 
-export const DATA_ROOT = join(homedir(), ".jinni-todo");
+export const DATA_ROOT = join(homedir(), ".orchestrator-ui");
 export const SESSIONS_DIR = join(DATA_ROOT, "sessions");
 export const ARCHIVE_DIR = join(DATA_ROOT, "archive");
+
+// Pre-rename data location. ensureDirs() moves it to DATA_ROOT on first run
+// if the new location doesn't already exist.
+export const LEGACY_DATA_ROOT = join(homedir(), ".jinni-todo");
 
 const XDG_CONFIG_HOME = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
 export const PREFS_DIR = join(XDG_CONFIG_HOME, "orchestrator-ui");
