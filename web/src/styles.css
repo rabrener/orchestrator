@@ -1682,9 +1682,13 @@ textarea {
   padding: 2px 8px;
   border-radius: 4px;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
+  max-width: 100%;
 }
 .cwd-btn:hover {
   color: var(--text);
@@ -1694,10 +1698,6 @@ textarea {
 .cwd-btn.drift {
   border-color: var(--warn, #d39e3a);
   color: var(--warn, #d39e3a);
-}
-.cwd-drift-dot {
-  font-size: 8px;
-  line-height: 1;
 }
 
 /* ── Settings: default cwd row ────────────────────────────────────── */

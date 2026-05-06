@@ -345,13 +345,10 @@ function CwdChip({
   todoCwd: string | null;
   onClick: () => void;
 }) {
-  // Active session is the source of truth when present, since the user may
-  // have changed the override after the session launched and we want them to
-  // see the discrepancy. Show a warn dot in that case.
-  const display = sessionCwd ?? todoCwd ?? "(default)";
   const drift = !!sessionCwd && !!todoCwd && sessionCwd !== todoCwd;
+  const display = todoCwd ?? sessionCwd ?? "(default)";
   const title = drift
-    ? `running in: ${sessionCwd}\noverride for next session: ${todoCwd}\nClick to change.`
+    ? `next session will run in: ${todoCwd}\ncurrently running in: ${sessionCwd}\nClick to change.`
     : sessionCwd
       ? `running in: ${sessionCwd}\nClick to change for the next session.`
       : todoCwd
@@ -365,8 +362,7 @@ function CwdChip({
       title={title}
       onClick={onClick}
     >
-      cwd: {prettyCwd(display)}
-      {drift && <span className="cwd-drift-dot" aria-hidden="true">●</span>}
+      cwd: {display}
     </button>
   );
 }
@@ -435,13 +431,6 @@ function EditableTitle({
       {value}
     </h2>
   );
-}
-
-// Replace the user's home prefix with `~` for compact display, regardless of
-// whether the server runs on linux (/home/<user>) or macOS (/Users/<user>).
-function prettyCwd(cwd: string): string {
-  const m = cwd.match(/^\/(?:home|Users)\/[^/]+(\/.*)?$/);
-  return m ? "~" + (m[1] ?? "") : cwd;
 }
 
 function formatTokens(n: number): string {
