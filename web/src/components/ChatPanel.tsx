@@ -1,6 +1,7 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { diffLines } from "diff";
 import { Send, Square } from "lucide-react";
 import { ModePicker } from "./ModePicker.js";
 import { DirectoryPickerDialog } from "./DirectoryPickerDialog.js";
@@ -1118,7 +1119,7 @@ const ToolRunCard = memo(
             {tools.map((t) => (
               <li key={t.id} className="tool-run-item">
                 <div className="tool-run-item-name">{t.tool_name ?? "tool"}</div>
-                <pre className="tool-run-item-input">{t.text}</pre>
+                <ToolRunBody message={t} />
               </li>
             ))}
           </ol>
@@ -1131,6 +1132,68 @@ const ToolRunCard = memo(
     a.tools[0]?.id === b.tools[0]?.id &&
     a.tools[a.tools.length - 1]?.id === b.tools[b.tools.length - 1]?.id,
 );
+
+function ToolRunBody({ message }: { message: ChatMessage }) {
+  const tool = message.tool_name;
+  if (tool === "Edit" || tool === "MultiEdit") {
+    const parsed = tryParseJSON(message.text);
+    if (parsed) return <EditDiffView tool={tool} input={parsed} />;
+  }
+  return <pre className="tool-run-item-input">{message.text}</pre>;
+}
+
+type EditInput = { file_path?: string; old_string?: string; new_string?: string };
+type MultiEditInput = { file_path?: string; edits?: Array<{ old_string?: string; new_string?: string }> };
+
+function EditDiffView({ tool, input }: { tool: string; input: unknown }) {
+  const data = input as EditInput & MultiEditInput;
+  const path = data.file_path;
+  const edits =
+    tool === "MultiEdit" && Array.isArray(data.edits)
+      ? data.edits
+      : [{ old_string: data.old_string, new_string: data.new_string }];
+
+  return (
+    <div className="diff-block">
+      {path && <div className="diff-path">{path}</div>}
+      {edits.map((e, i) => (
+        <DiffHunk key={i} oldStr={e.old_string ?? ""} newStr={e.new_string ?? ""} />
+      ))}
+    </div>
+  );
+}
+
+function DiffHunk({ oldStr, newStr }: { oldStr: string; newStr: string }) {
+  const parts = useMemo(() => diffLines(oldStr, newStr), [oldStr, newStr]);
+  return (
+    <pre className="diff-hunk">
+      {parts.map((p, i) => {
+        const cls = p.added ? "diff-add" : p.removed ? "diff-del" : "diff-ctx";
+        const sigil = p.added ? "+" : p.removed ? "-" : " ";
+        const lines = p.value.replace(/\n$/, "").split("\n");
+        return (
+          <span key={i} className={cls}>
+            {lines.map((ln, j) => (
+              <span key={j} className="diff-line">
+                <span className="diff-sigil">{sigil}</span>
+                {ln || "​"}
+                {"\n"}
+              </span>
+            ))}
+          </span>
+        );
+      })}
+    </pre>
+  );
+}
+
+function tryParseJSON(text: string): unknown | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 
 function PermissionPrompt({
   perm,

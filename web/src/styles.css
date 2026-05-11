@@ -916,6 +916,53 @@ textarea {
   overflow-y: auto;
 }
 
+/* ── Edit/MultiEdit diff view ─────────────────────────────────────── */
+.diff-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diff-path {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.diff-hunk {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 0;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre;
+}
+.diff-line {
+  display: block;
+  padding: 0 8px;
+}
+.diff-sigil {
+  display: inline-block;
+  width: 1ch;
+  margin-right: 6px;
+  opacity: 0.6;
+  user-select: none;
+}
+.diff-add .diff-line {
+  background: rgba(74, 222, 128, 0.12);
+  color: #4ade80;
+}
+.diff-del .diff-line {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+}
+.diff-ctx .diff-line {
+  color: var(--text-mute);
+}
+
 .msg-system {
   font-size: 11px;
   color: var(--text-mute);
