@@ -15,6 +15,10 @@ import { sessionManager } from "./session-manager.js";
 import { runCodexReview } from "./codex-review.js";
 import { probeCodex } from "./codex-status.js";
 import { broadcast } from "./ws.js";
+import { runShell } from "./shell-exec.js";
+import { appendMessage } from "./transcript.js";
+import { nanoid } from "nanoid";
+import type { ChatMessage } from "./types.js";
 import { readPreferences, writePreferences } from "./preferences.js";
 import type { Preferences } from "./preferences.js";
 import { discoverSlashCommands } from "./slash-commands.js";
@@ -225,6 +229,57 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return { error: "listener_not_configured" };
       }
       await session.sendUserMessage(text, listener);
+      return { ok: true };
+    },
+  );
+
+  // Inline shell execution — triggered by typing `!<cmd>` in the chat composer.
+  // Runs in the session's cwd, displays output in the transcript, but does NOT
+  // feed it to the agent (matches Claude Code's `!` pass-through behavior).
+  app.post<{ Params: { id: string }; Body: { command?: string } }>(
+    "/api/sessions/:id/shell",
+    async (req, reply) => {
+      const command = req.body?.command;
+      if (typeof command !== "string" || !command.trim()) {
+        reply.code(400);
+        return { error: "command_required" };
+      }
+      const session = sessionManager.get(req.params.id);
+      if (!session) {
+        reply.code(404);
+        return { error: "session_not_found" };
+      }
+      const cwd = session.cwd;
+      const todoId = req.params.id;
+      const ts = () => new Date().toISOString();
+      const mkMsg = (role: ChatMessage["role"], text: string): ChatMessage => ({
+        id: `m_${nanoid(10)}`,
+        role,
+        text,
+        ts: ts(),
+      });
+
+      const userMsg = mkMsg("user", `!${command}`);
+      await appendMessage(todoId, userMsg);
+      broadcast({ type: "session.message", payload: { todo_id: todoId, message: userMsg } });
+
+      const result = await runShell(command, cwd);
+      const parts: string[] = [];
+      if (result.output) parts.push(result.output.replace(/\n+$/, ""));
+      const meta: string[] = [];
+      if (result.timed_out) meta.push(`timed out after ${result.duration_ms}ms`);
+      if (result.truncated) meta.push("output truncated");
+      if (result.signal) meta.push(`signal ${result.signal}`);
+      if (result.exit_code !== null && result.exit_code !== 0) {
+        meta.push(`exit ${result.exit_code}`);
+      }
+      if (meta.length) parts.push(`[${meta.join(" · ")}]`);
+      const body = parts.join("\n") || "(no output)";
+
+      const shellMsg = mkMsg("shell", body);
+      await appendMessage(todoId, shellMsg);
+      broadcast({ type: "session.message", payload: { todo_id: todoId, message: shellMsg } });
+
       return { ok: true };
     },
   );

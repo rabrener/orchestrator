@@ -70,6 +70,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ text }),
     }),
+  runShell: (todoId: string, command: string) =>
+    jsonFetch(`/api/sessions/${todoId}/shell`, {
+      method: "POST",
+      body: JSON.stringify({ command }),
+    }),
   setMode: (todoId: string, mode: PermissionMode) =>
     jsonFetch(`/api/sessions/${todoId}/mode`, {
       method: "POST",

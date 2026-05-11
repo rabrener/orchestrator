@@ -55,6 +55,7 @@ interface Props {
   composerRestore: { text: string; nonce: number } | null;
   slashCommands: SlashCommand[];
   onSendMessage: (text: string) => void;
+  onRunShell: (command: string) => void;
   onSetMode: (mode: PermissionMode) => void;
   onResolvePermission: (perm: PendingPermission, allow: boolean) => void;
   onCodexReview: () => void;
@@ -72,6 +73,7 @@ export function ChatPanel({
   composerRestore,
   slashCommands,
   onSendMessage,
+  onRunShell,
   onSetMode,
   onResolvePermission,
   onCodexReview,
@@ -288,6 +290,7 @@ export function ChatPanel({
 
           <Composer
             onSend={onSendMessage}
+            onRunShell={onRunShell}
             restore={composerRestore}
             isInFlight={session.status === "working" || session.status === "asking"}
             onStop={onStop}
@@ -643,6 +646,7 @@ interface ComposerCommand {
 
 const Composer = memo(function Composer({
   onSend,
+  onRunShell,
   restore,
   isInFlight,
   onStop,
@@ -650,6 +654,7 @@ const Composer = memo(function Composer({
   sdkSlashCommands,
 }: {
   onSend: (text: string) => void;
+  onRunShell: (command: string) => void;
   restore: { text: string; nonce: number } | null;
   isInFlight: boolean;
   onStop: () => void;
@@ -758,7 +763,13 @@ const Composer = memo(function Composer({
     if (isInFlight) return;
     const text = draftRef.current.trim();
     if (!text) return;
-    onSend(text);
+    if (text.startsWith("!")) {
+      const command = text.slice(1).trim();
+      if (!command) return;
+      onRunShell(command);
+    } else {
+      onSend(text);
+    }
     setDraft("");
     if (vimModeRef.current) setVimMode(false);
   };

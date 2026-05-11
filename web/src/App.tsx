@@ -275,6 +275,15 @@ export function App() {
     }
   };
 
+  const onRunShell = async (command: string) => {
+    if (!selectedTodoId) return;
+    try {
+      await api.runShell(selectedTodoId, command);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
   const onSetMode = async (mode: PermissionMode) => {
     if (!selectedTodoId) return;
     try {
@@ -386,6 +395,7 @@ export function App() {
           composerRestore={selectedComposerRestore}
           slashCommands={slashCommands}
           onSendMessage={onSendMessage}
+          onRunShell={onRunShell}
           onSetMode={onSetMode}
           onResolvePermission={onResolvePermission}
           onCodexReview={onCodexReview}
