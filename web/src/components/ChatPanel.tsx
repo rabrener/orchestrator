@@ -1078,7 +1078,10 @@ const RenderedMarkdown = memo(function RenderedMarkdown({ source }: { source: st
 
 const MessageRow = memo(
   function MessageRow({ message }: { message: ChatMessage }) {
-    const renderAsMarkdown = message.role === "assistant" || message.role === "system";
+    const renderAsMarkdown =
+      message.role === "assistant" ||
+      message.role === "system" ||
+      message.role === "codex";
     return (
       <div className={`msg msg-${message.role}`}>
         <div className="msg-meta">

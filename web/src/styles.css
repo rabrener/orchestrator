@@ -982,14 +982,18 @@ textarea {
   font-style: italic;
   text-align: center;
 }
+/* Structured system messages (the codex brief, errors with code blocks) need
+   left-alignment so bullets and wrapped lines flow naturally. The :has() rule
+   keeps short single-line notices ("interrupted", "complete ✓") centered. */
+.msg-system .msg-md:has(ul, ol, pre, h1, h2, h3, h4) {
+  text-align: left;
+}
 .msg-codex {
   background: var(--bg-elev-2);
   border-left: 2px solid var(--accent);
-  font-family: var(--mono);
-  font-size: 12px;
 }
-.msg-codex .msg-text {
-  font-family: var(--mono);
+.msg-codex .msg-md {
+  text-align: left;
 }
 
 /* ── Codex review control (chip + button + setup popover) ──────────── */
