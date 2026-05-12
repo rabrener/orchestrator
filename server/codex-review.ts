@@ -317,6 +317,10 @@ async function runCodexReviewInner(
       };
       await appendMessage(todoId, reviewMsg);
       emitters.emitMessage(todoId, reviewMsg);
+      // Queue this result so the next user message picks it up as agent
+      // context. We intentionally do NOT queue the run summary ("complete: …")
+      // — only the per-repo analysis is useful to the agent.
+      sessionManager.queueCodexReview(todoId, repoName, result.finalMessage);
     } else if (!result.ok) {
       const errMsg: ChatMessage = {
         id: `cdx_${nanoid(8)}`,
