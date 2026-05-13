@@ -48,6 +48,10 @@ export const api = {
     jsonFetch<{ todo: Todo }>(`/api/todos/${id}/complete`, { method: "POST" }).then(
       (r) => r.todo,
     ),
+  uncompleteTodo: (id: string) =>
+    jsonFetch<{ todo: Todo }>(`/api/todos/${id}/uncomplete`, { method: "POST" }).then(
+      (r) => r.todo,
+    ),
   reorderTodos: (ids: string[]) =>
     jsonFetch<{ todos: Todo[] }>("/api/todos/reorder", {
       method: "POST",
@@ -65,6 +69,10 @@ export const api = {
     jsonFetch<{ session: SessionMeta; messages: ChatMessage[] }>(
       `/api/sessions/${todoId}`,
     ),
+  getTranscript: (todoId: string) =>
+    jsonFetch<{ messages: ChatMessage[] }>(
+      `/api/todos/${todoId}/transcript`,
+    ).then((r) => r.messages),
   sendMessage: (todoId: string, text: string) =>
     jsonFetch(`/api/sessions/${todoId}/message`, {
       method: "POST",

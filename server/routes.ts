@@ -9,6 +9,7 @@ import {
   renameTodo,
   reorderTodos,
   setTodoCwd,
+  uncompleteTodo,
 } from "./store.js";
 import { listDirectory } from "./fs-browser.js";
 import { sessionManager } from "./session-manager.js";
@@ -156,9 +157,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       reply.code(404);
       return { error: "not_found" };
     }
-    if (sessionManager.has(req.params.id)) {
-      await sessionManager.stop(req.params.id);
-    }
+    // Remove is the terminal action — wipe the live session dir (rename it
+    // into the dated archive). complete() intentionally keeps it on disk so
+    // the user can un-complete and recover the transcript.
+    await sessionManager.stop(req.params.id, { archive: true });
     broadcast({ type: "todos.updated", payload: await listTodos() });
     return { ok: true };
   });
@@ -169,9 +171,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       reply.code(404);
       return { error: "not_found" };
     }
-    await sessionManager.stop(req.params.id, { archive: true });
+    // Close the in-memory session but keep sessions/<id>/ on disk so the
+    // transcript (and SDK session_id on the todo) survive an un-complete.
+    await sessionManager.stop(req.params.id);
     broadcast({ type: "todos.updated", payload: await listTodos() });
     return { todo: updated };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/todos/:id/uncomplete", async (req, reply) => {
+    const updated = await uncompleteTodo(req.params.id);
+    if (!updated) {
+      reply.code(404);
+      return { error: "not_found" };
+    }
+    broadcast({ type: "todos.updated", payload: await listTodos() });
+    return { todo: updated };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/todos/:id/transcript", async (req) => {
+    // Read-only transcript by todo id. Used to display chat history for a
+    // todo whose live session has been closed (e.g. completed task whose
+    // sessions/<id>/transcript.jsonl is still on disk).
+    const messages = await sessionManager.getTranscript(req.params.id);
+    return { messages };
   });
 
   // ── Sessions ───────────────────────────────────────────────────────

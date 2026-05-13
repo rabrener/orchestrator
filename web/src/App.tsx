@@ -149,6 +149,29 @@ export function App() {
     return connectWs(handleEvent);
   }, [handleEvent]);
 
+  // Lazy-load transcripts for todos that weren't part of listSessions on boot
+  // — e.g. completed (or un-completed) todos whose live session is closed but
+  // whose sessions/<id>/transcript.jsonl is still on disk.
+  useEffect(() => {
+    if (!selectedTodoId) return;
+    if (messages[selectedTodoId] !== undefined) return;
+    let cancelled = false;
+    api
+      .getTranscript(selectedTodoId)
+      .then((msgs) => {
+        if (cancelled) return;
+        setMessages((prev) =>
+          prev[selectedTodoId] !== undefined
+            ? prev
+            : { ...prev, [selectedTodoId]: msgs },
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTodoId, messages]);
+
   const selectedTodo = useMemo(
     () => todos.find((t) => t.id === selectedTodoId) ?? null,
     [todos, selectedTodoId],
@@ -215,6 +238,14 @@ export function App() {
     try {
       await api.completeTodo(id);
       if (selectedTodoId === id) setSelectedTodoId(null);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const onUncompleteTodo = async (id: string) => {
+    try {
+      await api.uncompleteTodo(id);
     } catch (err) {
       setError(String(err));
     }
@@ -384,6 +415,7 @@ export function App() {
           onAdd={onAddTodo}
           onRemove={onRemoveTodo}
           onComplete={onCompleteTodo}
+          onUncomplete={onUncompleteTodo}
           onStartSession={onStartSession}
           onReorder={onReorderTodos}
         />

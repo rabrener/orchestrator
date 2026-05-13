@@ -219,6 +219,18 @@ export async function completeTodo(id: string): Promise<Todo | null> {
   return updated;
 }
 
+export async function uncompleteTodo(id: string): Promise<Todo | null> {
+  let updated: Todo | null = null;
+  await mutate((file) => {
+    const todo = file.todos.find((t) => t.id === id);
+    if (todo) {
+      todo.completed_at = null;
+      updated = todo;
+    }
+  });
+  return updated;
+}
+
 export async function reorderTodos(orderedIds: string[]): Promise<Todo[]> {
   let result: Todo[] = [];
   await mutate((file) => {

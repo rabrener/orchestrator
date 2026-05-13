@@ -363,6 +363,10 @@ textarea {
   padding: 0;
   font-size: 14px;
   color: var(--text-dim);
+  cursor: pointer;
+}
+.todo-item.completed .todo-check:hover {
+  color: var(--text);
 }
 .todo-title {
   overflow: hidden;
@@ -566,6 +570,18 @@ textarea {
   gap: 12px;
   color: var(--text-mute);
   font-style: italic;
+}
+.chat-empty.with-history {
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.chat-empty-actions {
+  display: flex;
+  gap: 8px;
+}
+.chat-log.readonly {
+  opacity: 0.92;
 }
 .chat-log-wrap {
   flex: 1;

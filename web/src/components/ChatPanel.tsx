@@ -240,12 +240,41 @@ export function ChatPanel({
         </div>
       </header>
 
+      {!session && messages.length > 0 && (
+        <div className="chat-log-wrap">
+          <div ref={setScrollRef} className="chat-log readonly" onScroll={onChatScroll}>
+            {renderItems.map((item) =>
+              item.kind === "message" ? (
+                <MessageRow key={item.message.id} message={item.message} />
+              ) : (
+                <ToolRunCard key={item.id} tools={item.tools} />
+              ),
+            )}
+          </div>
+          {!pinnedToBottom && unreadCount > 0 && (
+            <button
+              type="button"
+              className="chat-jump-bottom"
+              onClick={jumpToBottom}
+              aria-label={`Jump to ${unreadCount} new ${unreadCount === 1 ? "message" : "messages"}`}
+            >
+              ↓ {unreadCount} new {unreadCount === 1 ? "message" : "messages"}
+            </button>
+          )}
+        </div>
+      )}
+
       {!session && (
-        <div className="chat-empty">
-          <p>no agent for this to-do yet</p>
-          <button className="btn-primary" onClick={onStartSession}>
-            start agent
-          </button>
+        <div className={`chat-empty ${messages.length > 0 ? "with-history" : ""}`}>
+          {messages.length === 0 && <p>no agent for this to-do yet</p>}
+          <div className="chat-empty-actions">
+            <button className="btn-primary" onClick={onStartSession}>
+              {messages.length > 0 ? "resume agent" : "start agent"}
+            </button>
+            <button className="btn-secondary" onClick={onComplete}>
+              ✓ mark done
+            </button>
+          </div>
         </div>
       )}
 

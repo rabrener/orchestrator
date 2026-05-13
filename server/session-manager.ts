@@ -602,6 +602,10 @@ class SessionManager {
       if (meta.status === "done" || meta.status === "error") continue;
       if (this.sessions.has(meta.todo_id)) continue;
       const todo = todoById.get(meta.todo_id);
+      // A completed todo keeps its sessions/<id>/ dir so its transcript can be
+      // retrieved after un-completing — but the session itself should stay
+      // closed until the user explicitly hits "▶ start" again.
+      if (todo?.completed_at) continue;
       try {
         await this.start(
           meta.todo_id,

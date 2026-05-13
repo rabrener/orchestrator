@@ -10,6 +10,7 @@ interface Props {
   onAdd: (title: string) => void;
   onRemove: (id: string) => void;
   onComplete: (id: string) => void;
+  onUncomplete: (id: string) => void;
   onStartSession: (id: string) => void;
   onReorder: (orderedActiveIds: string[]) => void;
 }
@@ -32,6 +33,7 @@ export function TodoList({
   onAdd,
   onRemove,
   onComplete,
+  onUncomplete,
   onStartSession,
   onReorder,
 }: Props) {
@@ -238,7 +240,13 @@ export function TodoList({
             <li className="divider">done today</li>
             {done.map((t) => (
               <li key={t.id} className="todo-item completed">
-                <span className="todo-check">☑</span>
+                <button
+                  className="todo-check"
+                  title="mark not done"
+                  onClick={() => onUncomplete(t.id)}
+                >
+                  ☑
+                </button>
                 <span className="todo-title">{t.title}</span>
               </li>
             ))}
