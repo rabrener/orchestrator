@@ -165,14 +165,25 @@ function tail(s: string, lines: number): string {
   return arr.slice(Math.max(0, arr.length - lines)).join("\n");
 }
 
+export interface CodexReviewOptions {
+  // When set, replaces the auto-distilled brief with the user's own ask.
+  // Skips distillation entirely; the prompt is fed verbatim to codex as the
+  // review brief in each touched repo.
+  customPrompt?: string;
+}
+
 export async function runCodexReview(
   todoId: string,
   emitters: CodexEmitters,
+  options: CodexReviewOptions = {},
 ): Promise<void> {
+  const isCustom = !!options.customPrompt?.trim();
   const startMsg: ChatMessage = {
     id: `cdx_${nanoid(8)}`,
     role: "system",
-    text: "⚡ codex review — scanning workspace subrepos for changes…",
+    text: isCustom
+      ? "⚡ codex review (custom) — scanning workspace subrepos for changes…"
+      : "⚡ codex review — scanning workspace subrepos for changes…",
     ts: new Date().toISOString(),
   };
   await appendMessage(todoId, startMsg);
@@ -199,7 +210,7 @@ export async function runCodexReview(
     // Scan the active session's cwd, not the global workspace root — the user
     // may have pointed this todo at a different directory.
     const rootDir = sessionManager.get(todoId)?.cwd ?? WORKSPACE_ROOT;
-    return await runCodexReviewInner(todoId, emitters, rootDir);
+    return await runCodexReviewInner(todoId, emitters, rootDir, options);
   } finally {
     sessionManager.setCodexReviewActive(todoId, false);
   }
@@ -209,6 +220,7 @@ async function runCodexReviewInner(
   todoId: string,
   emitters: CodexEmitters,
   rootDir: string,
+  options: CodexReviewOptions,
 ): Promise<void> {
 
   const dirty = await findDirtySubrepos(rootDir);
@@ -267,20 +279,27 @@ async function runCodexReviewInner(
   await appendMessage(todoId, summaryStart);
   emitters.emitMessage(todoId, summaryStart);
 
-  // Distill a context brief from the chat transcript so codex reviews the diff
-  // against the user's stated intent, not just the diff in isolation.
-  const todos = await listTodos();
-  const todoTitle = todos.find((t) => t.id === todoId)?.title ?? "(unknown task)";
-  const distillStart = Date.now();
-  const { brief, distilled, error: distillError } = await distillContext(
-    todoTitle,
-    transcript,
-  );
-  const distillMs = Date.now() - distillStart;
-
-  const briefHeader = distilled
-    ? `📋 review brief (distilled in ${distillMs}ms):`
-    : `📋 review brief (fallback — distillation skipped${distillError ? `: ${distillError}` : ""}):`;
+  // Brief acquisition: when the user supplied a custom prompt, use it
+  // verbatim and skip the distillation LLM call entirely. Otherwise distill
+  // a brief from the chat transcript so codex reviews the diff against the
+  // user's stated intent, not just the diff in isolation.
+  let brief: string;
+  let briefHeader: string;
+  const customPrompt = options.customPrompt?.trim();
+  if (customPrompt) {
+    brief = customPrompt;
+    briefHeader = "📋 review brief (custom):";
+  } else {
+    const todos = await listTodos();
+    const todoTitle = todos.find((t) => t.id === todoId)?.title ?? "(unknown task)";
+    const distillStart = Date.now();
+    const distill = await distillContext(todoTitle, transcript);
+    const distillMs = Date.now() - distillStart;
+    brief = distill.brief;
+    briefHeader = distill.distilled
+      ? `📋 review brief (distilled in ${distillMs}ms):`
+      : `📋 review brief (fallback — distillation skipped${distill.error ? `: ${distill.error}` : ""}):`;
+  }
   const briefMsg: ChatMessage = {
     id: `cdx_${nanoid(8)}`,
     role: "system",

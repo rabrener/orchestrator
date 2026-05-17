@@ -10,7 +10,8 @@ import type {
   ChatMessage,
   ClaudeTodo,
   CodexStatus,
-  PendingPermission,
+  InteractionResponse,
+  PendingInteraction,
   PermissionMode,
   SessionMeta,
   SlashCommand,
@@ -57,8 +58,11 @@ interface Props {
   onSendMessage: (text: string) => void;
   onRunShell: (command: string) => void;
   onSetMode: (mode: PermissionMode) => void;
-  onResolvePermission: (perm: PendingPermission, allow: boolean) => void;
-  onCodexReview: () => void;
+  onResolveInteraction: (
+    interaction: PendingInteraction,
+    response: InteractionResponse,
+  ) => void;
+  onCodexReview: (prompt?: string) => void;
   onComplete: () => void;
   onStop: () => void;
   onStartSession: () => void;
@@ -75,7 +79,7 @@ export function ChatPanel({
   onSendMessage,
   onRunShell,
   onSetMode,
-  onResolvePermission,
+  onResolveInteraction,
   onCodexReview,
   onComplete,
   onStop,
@@ -298,10 +302,10 @@ export function ChatPanel({
                   <ToolRunCard key={item.id} tools={item.tools} />
                 ),
               )}
-              {session.pending_permission && (
-                <PermissionPrompt
-                  perm={session.pending_permission}
-                  onResolve={onResolvePermission}
+              {session.pending_interaction && (
+                <InteractionPanel
+                  interaction={session.pending_interaction}
+                  onResolve={onResolveInteraction}
                 />
               )}
             </div>
@@ -499,12 +503,16 @@ function CodexReviewControl({
   onCodexReview,
   reviewActive,
 }: {
-  onCodexReview: () => void;
+  onCodexReview: (prompt?: string) => void;
   reviewActive: boolean;
 }) {
   const [status, setStatus] = useState<CodexStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  // Three-way menu state: closed | menu (Default / Custom… choices) | custom
+  // (free-text input for the user's brief). Mutually exclusive with the
+  // setup popover so only one popout sits next to the button at a time.
+  const [menuMode, setMenuMode] = useState<"closed" | "menu" | "custom">("closed");
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const refresh = async (force = false) => {
@@ -528,16 +536,20 @@ function CodexReviewControl({
     void refresh(false);
   }, []);
 
-  // Click-outside to close the popover so it doesn't linger when the user
-  // moves on to another part of the UI.
+  // Click-outside closes whichever popout is currently open. One handler
+  // covers both the setup popover and the split-menu since they share the
+  // wrapping container.
   useEffect(() => {
-    if (!popoverOpen) return;
+    if (!popoverOpen && menuMode === "closed") return;
     const onDown = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setPopoverOpen(false);
+      if (!wrapRef.current?.contains(e.target as Node)) {
+        setPopoverOpen(false);
+        setMenuMode("closed");
+      }
     };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
-  }, [popoverOpen]);
+  }, [popoverOpen, menuMode]);
 
   const ready = !!status?.installed;
   const chipLabel = loading
@@ -547,12 +559,24 @@ function CodexReviewControl({
       : "codex · setup";
   const chipClass = `codex-chip ${ready ? "ready" : "warn"}`;
 
+  const runDefault = () => {
+    onCodexReview();
+    setMenuMode("closed");
+  };
+  const runCustom = (prompt: string) => {
+    onCodexReview(prompt);
+    setMenuMode("closed");
+  };
+
   return (
     <div className="codex-review-control" ref={wrapRef}>
       <button
         type="button"
         className={chipClass}
-        onClick={() => setPopoverOpen((v) => !v)}
+        onClick={() => {
+          setPopoverOpen((v) => !v);
+          setMenuMode("closed");
+        }}
         title={
           ready
             ? "codex CLI detected — click for details"
@@ -563,20 +587,69 @@ function CodexReviewControl({
       >
         {chipLabel}
       </button>
-      <button
-        className="btn-secondary"
-        onClick={onCodexReview}
-        disabled={!ready || reviewActive}
-        title={
-          reviewActive
-            ? "Codex review is already running"
-            : ready
-              ? "Run codex review on dirty subrepos"
-              : "Set up codex first"
-        }
-      >
-        {reviewActive ? "⚡ codex review …" : "⚡ codex review"}
-      </button>
+      <div className="codex-split-btn">
+        <button
+          className="btn-secondary codex-split-main"
+          onClick={runDefault}
+          disabled={!ready || reviewActive}
+          title={
+            reviewActive
+              ? "Codex review is already running"
+              : ready
+                ? "Run codex review on dirty subrepos"
+                : "Set up codex first"
+          }
+        >
+          {reviewActive ? "⚡ codex review …" : "⚡ codex review"}
+        </button>
+        <button
+          type="button"
+          className="btn-secondary codex-split-caret"
+          disabled={!ready || reviewActive}
+          aria-label="More codex review options"
+          aria-haspopup="menu"
+          aria-expanded={menuMode !== "closed"}
+          onClick={() => {
+            setPopoverOpen(false);
+            setMenuMode((m) => (m === "closed" ? "menu" : "closed"));
+          }}
+          title="More codex review options"
+        >
+          ▾
+        </button>
+        {menuMode === "menu" && (
+          <div className="codex-split-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="codex-split-menu-item"
+              onClick={runDefault}
+            >
+              <div className="codex-split-menu-label">Default review</div>
+              <div className="codex-split-menu-desc">
+                Distill a brief from the chat, then run codex on touched repos.
+              </div>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="codex-split-menu-item"
+              onClick={() => setMenuMode("custom")}
+            >
+              <div className="codex-split-menu-label">Custom query…</div>
+              <div className="codex-split-menu-desc">
+                Provide your own review prompt instead of the auto-distilled brief.
+              </div>
+            </button>
+          </div>
+        )}
+        {menuMode === "custom" && (
+          <CodexCustomPrompt
+            onCancel={() => setMenuMode("menu")}
+            onRun={runCustom}
+          />
+        )}
+      </div>
       {popoverOpen && (
         <CodexSetupPopover
           status={status}
@@ -585,6 +658,62 @@ function CodexReviewControl({
           onClose={() => setPopoverOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+function CodexCustomPrompt({
+  onCancel,
+  onRun,
+}: {
+  onCancel: () => void;
+  onRun: (prompt: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    taRef.current?.focus();
+  }, []);
+  const trimmed = text.trim();
+  const submit = () => {
+    if (!trimmed) return;
+    onRun(trimmed);
+  };
+  return (
+    <div className="codex-split-menu codex-split-custom" role="dialog">
+      <div className="codex-split-custom-label">
+        Custom review prompt — fed verbatim to codex as the brief in each touched repo.
+      </div>
+      <textarea
+        ref={taRef}
+        className="codex-split-custom-input"
+        rows={5}
+        placeholder="e.g. Focus only on auth-related changes; flag any new untrusted input that reaches Bash."
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
+      />
+      <div className="codex-split-custom-actions">
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={submit}
+          disabled={!trimmed}
+        >
+          run review
+        </button>
+        <button type="button" className="btn-secondary" onClick={onCancel}>
+          back
+        </button>
+      </div>
     </div>
   );
 }
@@ -1238,41 +1367,507 @@ function tryParseJSON(text: string): unknown | null {
   }
 }
 
-function PermissionPrompt({
-  perm,
+// ── Interaction panel ──────────────────────────────────────────────────
+// Single entry point. Switches on the SDK-driven interaction kind and
+// renders the appropriate form. Once the user submits, the leaf calls
+// `onResolve` with a typed response matching the request kind.
+
+function InteractionPanel({
+  interaction,
   onResolve,
 }: {
-  perm: PendingPermission;
-  onResolve: (perm: PendingPermission, allow: boolean) => void;
+  interaction: PendingInteraction;
+  onResolve: (
+    interaction: PendingInteraction,
+    response: InteractionResponse,
+  ) => void;
 }) {
-  const [resolved, setResolved] = useState<"allow" | "deny" | null>(null);
-  const handle = (allow: boolean) => {
-    if (resolved) return;
-    setResolved(allow ? "allow" : "deny");
-    onResolve(perm, allow);
+  const [submitted, setSubmitted] = useState(false);
+  const submit = (response: InteractionResponse) => {
+    if (submitted) return;
+    setSubmitted(true);
+    onResolve(interaction, response);
   };
+
+  switch (interaction.kind) {
+    case "tool_permission":
+      return (
+        <ToolPermissionPrompt
+          interaction={interaction}
+          submitted={submitted}
+          onSubmit={submit}
+        />
+      );
+    case "question":
+      return (
+        <QuestionForm
+          interaction={interaction}
+          submitted={submitted}
+          onSubmit={submit}
+        />
+      );
+    case "plan_approval":
+      return (
+        <PlanApprovalPrompt
+          interaction={interaction}
+          submitted={submitted}
+          onSubmit={submit}
+        />
+      );
+    case "elicitation":
+      return (
+        <ElicitationForm
+          interaction={interaction}
+          submitted={submitted}
+          onSubmit={submit}
+        />
+      );
+  }
+}
+
+function ToolPermissionPrompt({
+  interaction,
+  submitted,
+  onSubmit,
+}: {
+  interaction: Extract<PendingInteraction, { kind: "tool_permission" }>;
+  submitted: boolean;
+  onSubmit: (response: InteractionResponse) => void;
+}) {
+  const title = interaction.title ?? `permission needed: ${interaction.tool}`;
+  // Edit / MultiEdit reuse the diff renderer; everything else gets a JSON box.
+  const inputView =
+    interaction.tool === "Edit" || interaction.tool === "MultiEdit"
+      ? <EditDiffView tool={interaction.tool} input={interaction.input} />
+      : <pre className="permission-input">{
+          typeof interaction.input === "string"
+            ? interaction.input
+            : JSON.stringify(interaction.input, null, 2)
+        }</pre>;
+
+  const hasSuggestions =
+    Array.isArray(interaction.suggestions) && interaction.suggestions.length > 0;
+
   return (
-    <div className="permission-prompt">
-      <div className="permission-header">
-        🔐 permission needed: <strong>{perm.tool}</strong>
+    <div className="interaction-panel interaction-permission">
+      <div className="interaction-header">
+        🔐 <strong>{title}</strong>
+        {interaction.display_name && interaction.display_name !== title && (
+          <span className="interaction-subtitle"> · {interaction.display_name}</span>
+        )}
       </div>
-      <pre className="permission-input">{JSON.stringify(perm.input, null, 2)}</pre>
-      <div className="permission-actions">
+      {interaction.description && (
+        <div className="interaction-description">{interaction.description}</div>
+      )}
+      {interaction.decision_reason && (
+        <div className="interaction-reason">why: {interaction.decision_reason}</div>
+      )}
+      {interaction.blocked_path && (
+        <div className="interaction-reason">blocked path: {interaction.blocked_path}</div>
+      )}
+      {inputView}
+      <div className="interaction-actions">
         <button
           className="btn-primary"
-          disabled={resolved !== null}
-          onClick={() => handle(true)}
+          disabled={submitted}
+          onClick={() => onSubmit({ kind: "tool_permission", allow: true })}
         >
-          {resolved === "allow" ? "allowed" : "allow"}
+          allow
+        </button>
+        {hasSuggestions && (
+          <button
+            className="btn-primary"
+            disabled={submitted}
+            title="Approve and apply the SDK-suggested permission rule updates so this won't be asked again."
+            onClick={() =>
+              onSubmit({
+                kind: "tool_permission",
+                allow: true,
+                updated_permissions: interaction.suggestions,
+              })
+            }
+          >
+            allow & remember
+          </button>
+        )}
+        <button
+          className="btn-secondary"
+          disabled={submitted}
+          onClick={() => onSubmit({ kind: "tool_permission", allow: false })}
+        >
+          deny
         </button>
         <button
           className="btn-secondary"
-          disabled={resolved !== null}
-          onClick={() => handle(false)}
+          disabled={submitted}
+          title="Deny this and interrupt the agent's current turn."
+          onClick={() =>
+            onSubmit({
+              kind: "tool_permission",
+              allow: false,
+              interrupt_on_deny: true,
+            })
+          }
         >
-          {resolved === "deny" ? "denied" : "deny"}
+          deny & stop
         </button>
       </div>
     </div>
   );
+}
+
+function QuestionForm({
+  interaction,
+  submitted,
+  onSubmit,
+}: {
+  interaction: Extract<PendingInteraction, { kind: "question" }>;
+  submitted: boolean;
+  onSubmit: (response: InteractionResponse) => void;
+}) {
+  // Per-question state: selected labels (1 for single-select, N for multi)
+  // plus the free-text "Other" note. The tool description guarantees an
+  // implicit Other option, so the notes field is always present.
+  const [selections, setSelections] = useState<Record<string, string[]>>(() => {
+    const initial: Record<string, string[]> = {};
+    for (const q of interaction.questions) initial[q.question] = [];
+    return initial;
+  });
+  const [notes, setNotes] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const q of interaction.questions) initial[q.question] = "";
+    return initial;
+  });
+  const [focusedOption, setFocusedOption] = useState<Record<string, string | null>>(
+    () => {
+      const initial: Record<string, string | null> = {};
+      for (const q of interaction.questions) initial[q.question] = null;
+      return initial;
+    },
+  );
+
+  const allAnswered = interaction.questions.every(
+    (q) => selections[q.question].length > 0 || notes[q.question].trim().length > 0,
+  );
+
+  const toggle = (q: typeof interaction.questions[number], label: string) => {
+    setSelections((prev) => {
+      const cur = prev[q.question];
+      if (q.multiSelect) {
+        const next = cur.includes(label)
+          ? cur.filter((l) => l !== label)
+          : [...cur, label];
+        return { ...prev, [q.question]: next };
+      }
+      return { ...prev, [q.question]: [label] };
+    });
+    setFocusedOption((prev) => ({ ...prev, [q.question]: label }));
+  };
+
+  const submit = () => {
+    const answers: Record<string, string> = {};
+    const annotations: Record<string, { notes?: string }> = {};
+    for (const q of interaction.questions) {
+      const picked = selections[q.question];
+      const note = notes[q.question].trim();
+      const parts = [...picked];
+      if (note) parts.push(`Other: ${note}`);
+      answers[q.question] = parts.join(", ");
+      if (note) annotations[q.question] = { notes: note };
+    }
+    onSubmit({
+      kind: "question",
+      answers,
+      ...(Object.keys(annotations).length ? { annotations } : {}),
+    });
+  };
+
+  return (
+    <div className="interaction-panel interaction-question">
+      <div className="interaction-header">❓ <strong>agent is asking</strong></div>
+      {interaction.questions.map((q) => {
+        const focused = focusedOption[q.question];
+        const focusedOpt = q.options.find((o) => o.label === focused);
+        const preview = focusedOpt?.preview;
+        return (
+          <div key={q.question} className="question-block">
+            <div className="question-row">
+              <span className="question-header-chip">{q.header}</span>
+              <span className="question-text">{q.question}</span>
+            </div>
+            <div className="question-options">
+              {q.options.map((opt) => {
+                const checked = selections[q.question].includes(opt.label);
+                return (
+                  <label
+                    key={opt.label}
+                    className={`question-option ${checked ? "is-checked" : ""}`}
+                    onMouseEnter={() =>
+                      setFocusedOption((p) => ({ ...p, [q.question]: opt.label }))
+                    }
+                  >
+                    <input
+                      type={q.multiSelect ? "checkbox" : "radio"}
+                      name={`q_${q.question}`}
+                      checked={checked}
+                      disabled={submitted}
+                      onChange={() => toggle(q, opt.label)}
+                    />
+                    <div className="question-option-text">
+                      <div className="question-option-label">{opt.label}</div>
+                      {opt.description && (
+                        <div className="question-option-desc">{opt.description}</div>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            {preview && (
+              <pre className="question-preview">{preview}</pre>
+            )}
+            <input
+              className="question-other"
+              type="text"
+              placeholder="Other (free text)"
+              value={notes[q.question]}
+              disabled={submitted}
+              onChange={(e) =>
+                setNotes((p) => ({ ...p, [q.question]: e.target.value }))
+              }
+            />
+          </div>
+        );
+      })}
+      <div className="interaction-actions">
+        <button
+          className="btn-primary"
+          disabled={submitted || !allAnswered}
+          onClick={submit}
+        >
+          submit
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PlanApprovalPrompt({
+  interaction,
+  submitted,
+  onSubmit,
+}: {
+  interaction: Extract<PendingInteraction, { kind: "plan_approval" }>;
+  submitted: boolean;
+  onSubmit: (response: InteractionResponse) => void;
+}) {
+  const [enabled, setEnabled] = useState<boolean[]>(() =>
+    interaction.allowed_prompts.map(() => true),
+  );
+  const toggle = (i: number) =>
+    setEnabled((prev) => prev.map((v, idx) => (idx === i ? !v : v)));
+
+  const approve = () => {
+    const allowed = interaction.allowed_prompts.filter((_, i) => enabled[i]);
+    onSubmit({ kind: "plan_approval", allow: true, allowed_prompts: allowed });
+  };
+  const reject = () => onSubmit({ kind: "plan_approval", allow: false });
+
+  return (
+    <div className="interaction-panel interaction-plan">
+      <div className="interaction-header">📋 <strong>approve plan?</strong></div>
+      {interaction.plan_markdown ? (
+        <div className="plan-markdown">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {interaction.plan_markdown}
+          </ReactMarkdown>
+        </div>
+      ) : (
+        <div className="interaction-description">
+          (no plan text captured — the agent went straight to ExitPlanMode)
+        </div>
+      )}
+      {interaction.allowed_prompts.length > 0 && (
+        <>
+          <div className="interaction-description">
+            Pre-approve these action categories for implementation:
+          </div>
+          <div className="plan-prompts">
+            {interaction.allowed_prompts.map((p, i) => (
+              <label key={i} className="plan-prompt-row">
+                <input
+                  type="checkbox"
+                  checked={enabled[i]}
+                  disabled={submitted}
+                  onChange={() => toggle(i)}
+                />
+                <span className="plan-prompt-tool">{p.tool}</span>
+                <span className="plan-prompt-text">{p.prompt}</span>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+      <div className="interaction-actions">
+        <button className="btn-primary" disabled={submitted} onClick={approve}>
+          approve
+        </button>
+        <button className="btn-secondary" disabled={submitted} onClick={reject}>
+          reject
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ElicitationForm({
+  interaction,
+  submitted,
+  onSubmit,
+}: {
+  interaction: Extract<PendingInteraction, { kind: "elicitation" }>;
+  submitted: boolean;
+  onSubmit: (response: InteractionResponse) => void;
+}) {
+  const fields = useMemo(
+    () => extractElicitationFields(interaction.schema),
+    [interaction.schema],
+  );
+  const [values, setValues] = useState<Record<string, string | number | boolean>>(
+    () => {
+      const initial: Record<string, string | number | boolean> = {};
+      for (const f of fields) {
+        initial[f.name] =
+          f.type === "boolean" ? false : f.type === "number" ? 0 : "";
+      }
+      return initial;
+    },
+  );
+
+  const accept = () => {
+    if (interaction.mode === "url") {
+      onSubmit({ kind: "elicitation", action: "accept" });
+      return;
+    }
+    onSubmit({ kind: "elicitation", action: "accept", content: values });
+  };
+
+  return (
+    <div className="interaction-panel interaction-elicitation">
+      <div className="interaction-header">
+        🔌 <strong>{interaction.title ?? `${interaction.server_name} requests input`}</strong>
+      </div>
+      {interaction.description && (
+        <div className="interaction-description">{interaction.description}</div>
+      )}
+      <div className="interaction-message">{interaction.message}</div>
+      {interaction.mode === "url" && interaction.url && (
+        <div className="elicitation-url">
+          <a href={interaction.url} target="_blank" rel="noreferrer">
+            open URL ↗
+          </a>
+        </div>
+      )}
+      {interaction.mode === "form" && fields.length > 0 && (
+        <div className="elicitation-fields">
+          {fields.map((f) => (
+            <label key={f.name} className="elicitation-field">
+              <span className="elicitation-field-label">
+                {f.label}
+                {f.required && <span className="elicitation-required"> *</span>}
+              </span>
+              {f.type === "boolean" ? (
+                <input
+                  type="checkbox"
+                  checked={Boolean(values[f.name])}
+                  disabled={submitted}
+                  onChange={(e) =>
+                    setValues((v) => ({ ...v, [f.name]: e.target.checked }))
+                  }
+                />
+              ) : f.type === "number" ? (
+                <input
+                  type="number"
+                  value={String(values[f.name] ?? "")}
+                  disabled={submitted}
+                  onChange={(e) =>
+                    setValues((v) => ({
+                      ...v,
+                      [f.name]: e.target.value === "" ? "" : Number(e.target.value),
+                    }))
+                  }
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={String(values[f.name] ?? "")}
+                  disabled={submitted}
+                  onChange={(e) =>
+                    setValues((v) => ({ ...v, [f.name]: e.target.value }))
+                  }
+                />
+              )}
+              {f.description && (
+                <span className="elicitation-field-desc">{f.description}</span>
+              )}
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="interaction-actions">
+        <button className="btn-primary" disabled={submitted} onClick={accept}>
+          {interaction.mode === "url" ? "I'm done" : "accept"}
+        </button>
+        <button
+          className="btn-secondary"
+          disabled={submitted}
+          onClick={() => onSubmit({ kind: "elicitation", action: "decline" })}
+        >
+          decline
+        </button>
+        <button
+          className="btn-secondary"
+          disabled={submitted}
+          onClick={() => onSubmit({ kind: "elicitation", action: "cancel" })}
+        >
+          cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type ElicitationField = {
+  name: string;
+  label: string;
+  description?: string;
+  type: "string" | "number" | "boolean";
+  required: boolean;
+};
+
+// Minimal JSON-Schema → form-field projection. Handles the common shape
+// MCP servers actually emit: {type:'object', properties:{ name:{type,...} },
+// required:[...]}. Anything richer (enums, arrays, nested objects) is
+// flattened to a string input — good enough as a fallback.
+function extractElicitationFields(schema: unknown): ElicitationField[] {
+  if (!schema || typeof schema !== "object") return [];
+  const s = schema as { properties?: Record<string, unknown>; required?: unknown };
+  if (!s.properties || typeof s.properties !== "object") return [];
+  const required = Array.isArray(s.required) ? (s.required as string[]) : [];
+  return Object.entries(s.properties).map(([name, raw]) => {
+    const p = (raw && typeof raw === "object" ? raw : {}) as {
+      type?: string;
+      title?: string;
+      description?: string;
+    };
+    const t =
+      p.type === "boolean" ? "boolean" : p.type === "number" || p.type === "integer" ? "number" : "string";
+    return {
+      name,
+      label: p.title ?? name,
+      description: p.description,
+      type: t,
+      required: required.includes(name),
+    };
+  });
 }

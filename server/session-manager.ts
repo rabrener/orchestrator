@@ -12,12 +12,16 @@ import { readPreferences, resolvePreferredCwd } from "./preferences.js";
 import { listTodos, setTodoSessionId } from "./store.js";
 import { stat } from "node:fs/promises";
 import type {
+  AskUserQuestion,
   ChatMessage,
   ClaudeTodo,
-  PendingPermission,
+  InteractionResponse,
+  PendingInteraction,
   PermissionMode,
+  PlanAllowedPrompt,
   SessionMeta,
   SessionStatus,
+  SuggestedPermissionUpdate,
 } from "./types.js";
 
 const ALLOWED_READ_TOOLS = ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "TodoWrite"];
@@ -105,9 +109,21 @@ async function resolveSessionCwd(
 type Listener = {
   onStatus: (todoId: string, status: SessionStatus, meta: SessionMeta) => void;
   onMessage: (todoId: string, message: ChatMessage) => void;
-  onPermissionRequest: (todoId: string, permission: PendingPermission) => void;
+  onInteractionRequest: (todoId: string, interaction: PendingInteraction) => void;
   onComposerRestore: (todoId: string, text: string) => void;
 };
+
+type AnyInteractionResolver = (response: InteractionResponse) => void;
+
+function isQuestionInput(input: unknown): input is { questions: AskUserQuestion[] } {
+  if (!input || typeof input !== "object") return false;
+  const q = (input as { questions?: unknown }).questions;
+  return Array.isArray(q) && q.length > 0;
+}
+
+function isExitPlanInput(input: unknown): input is { allowedPrompts?: PlanAllowedPrompt[] } {
+  return !!input && typeof input === "object";
+}
 
 class ActiveSession {
   todoId: string;
@@ -116,9 +132,13 @@ class ActiveSession {
   status: SessionStatus = "idle";
   permissionMode: PermissionMode = "default";
   cwd: string;
-  pendingPermission: PendingPermission | null = null;
+  pendingInteraction: PendingInteraction | null = null;
   startedAt = new Date().toISOString();
   lastActivityAt = this.startedAt;
+  // Most recent assistant text content. Captured incrementally as we consume
+  // tool_use blocks so an ExitPlanMode call can surface the plan markdown the
+  // model emitted in the preceding text block.
+  lastAssistantText = "";
 
   // Set true the moment a user-initiated stop begins, so the consume loop can
   // distinguish an SDK abort error from a genuine failure.
@@ -157,7 +177,10 @@ class ActiveSession {
 
   private inputQueue: InputQueue<SDKUserMessage>;
   private q: Query | null = null;
-  private permissionResolvers = new Map<string, (allow: boolean) => void>();
+  // Resolvers keyed by interaction id. The waiting `canUseTool` /
+  // `onElicitation` invocation parked here is resolved exactly once with a
+  // discriminated response that matches the request kind.
+  private interactionResolvers = new Map<string, AnyInteractionResolver>();
   private loopPromise: Promise<void> | null = null;
 
   constructor(todoId: string, cwd: string, taskTitle: string, mode: PermissionMode = "default") {
@@ -188,20 +211,140 @@ class ActiveSession {
         // Does not auto-enable bypass — only permits the mode switch.
         allowDangerouslySkipPermissions: true,
         ...(CLAUDE_EXECUTABLE ? { pathToClaudeCodeExecutable: CLAUDE_EXECUTABLE } : {}),
-        canUseTool: async (toolName, input) => {
-          const requestId = `perm_${nanoid(8)}`;
-          const perm: PendingPermission = { request_id: requestId, tool: toolName, input };
-          this.pendingPermission = perm;
-          this.setStatus("asking", listener);
-          listener.onPermissionRequest(this.todoId, perm);
-          const allow = await new Promise<boolean>((resolve) => {
-            this.permissionResolvers.set(requestId, resolve);
-          });
-          this.pendingPermission = null;
-          if (allow) {
-            return { behavior: "allow", updatedInput: input };
+        canUseTool: async (toolName, input, opts) => {
+          // AskUserQuestion → render a structured question form. The SDK CLI
+          // treats canUseTool's allow with updatedInput as the path forward;
+          // if it ignores our injected answers we fall back to the deferred
+          // path (terminal_reason='tool_deferred' handled in consume()).
+          if (toolName === "AskUserQuestion" && isQuestionInput(input)) {
+            const res = await this.askInteraction(
+              {
+                kind: "question",
+                id: `int_${nanoid(8)}`,
+                tool_use_id: opts?.toolUseID,
+                questions: input.questions,
+              },
+              listener,
+              opts?.signal,
+            );
+            if (res?.kind !== "question") {
+              return { behavior: "deny", message: "question aborted" };
+            }
+            return {
+              behavior: "allow",
+              updatedInput: {
+                ...(input as Record<string, unknown>),
+                answers: res.answers,
+                ...(res.annotations ? { annotations: res.annotations } : {}),
+              },
+            };
           }
-          return { behavior: "deny", message: "denied by user" };
+          // ExitPlanMode → surface the last assistant text as the plan, plus
+          // the proposed `allowedPrompts` list (the user can prune it before
+          // approving).
+          if (toolName === "ExitPlanMode" && isExitPlanInput(input)) {
+            const res = await this.askInteraction(
+              {
+                kind: "plan_approval",
+                id: `int_${nanoid(8)}`,
+                tool_use_id: opts?.toolUseID,
+                plan_markdown: this.lastAssistantText,
+                allowed_prompts: input.allowedPrompts ?? [],
+              },
+              listener,
+              opts?.signal,
+            );
+            if (res?.kind !== "plan_approval") {
+              return { behavior: "deny", message: "plan approval aborted" };
+            }
+            if (!res.allow) {
+              return { behavior: "deny", message: res.message ?? "plan rejected by user" };
+            }
+            return {
+              behavior: "allow",
+              updatedInput: {
+                ...(input as Record<string, unknown>),
+                ...(res.allowed_prompts ? { allowedPrompts: res.allowed_prompts } : {}),
+              },
+            };
+          }
+          // Default: standard tool permission with the bridge-provided
+          // pre-rendered strings and SDK-suggested rule updates.
+          const res = await this.askInteraction(
+            {
+              kind: "tool_permission",
+              id: `int_${nanoid(8)}`,
+              tool_use_id: opts?.toolUseID,
+              tool: toolName,
+              input,
+              title: opts?.title,
+              display_name: opts?.displayName,
+              description: opts?.description,
+              blocked_path: opts?.blockedPath,
+              decision_reason: opts?.decisionReason,
+              suggestions: opts?.suggestions as SuggestedPermissionUpdate[] | undefined,
+            },
+            listener,
+            opts?.signal,
+          );
+          if (res?.kind !== "tool_permission") {
+            return { behavior: "deny", message: "permission aborted" };
+          }
+          if (!res.allow) {
+            return {
+              behavior: "deny",
+              message: res.message ?? "denied by user",
+              ...(res.interrupt_on_deny ? { interrupt: true } : {}),
+            };
+          }
+          return {
+            behavior: "allow",
+            updatedInput: (res.updated_input ?? (input as Record<string, unknown>)),
+            ...(res.updated_permissions
+              ? { updatedPermissions: res.updated_permissions as never }
+              : {}),
+          };
+        },
+        onElicitation: async (request, opts) => {
+          const res = await this.askInteraction(
+            {
+              kind: "elicitation",
+              id: `int_${nanoid(8)}`,
+              server_name: request.serverName,
+              message: request.message,
+              mode: request.mode ?? "form",
+              url: request.url,
+              schema: request.requestedSchema,
+              title: request.title,
+              display_name: request.displayName,
+              description: request.description,
+            },
+            listener,
+            opts?.signal,
+          );
+          if (res?.kind !== "elicitation") {
+            return { action: "cancel" };
+          }
+          // ElicitResult constrains content to primitive values per the MCP
+          // spec; coerce anything richer to a string so we don't violate the
+          // schema. Real callers should already send primitives.
+          const content = res.content
+            ? Object.fromEntries(
+                Object.entries(res.content).map(([k, v]) => [
+                  k,
+                  typeof v === "string" ||
+                  typeof v === "number" ||
+                  typeof v === "boolean" ||
+                  (Array.isArray(v) && v.every((x) => typeof x === "string"))
+                    ? (v as string | number | boolean | string[])
+                    : JSON.stringify(v),
+                ]),
+              )
+            : undefined;
+          return {
+            action: res.action,
+            ...(content ? { content } : {}),
+          };
         },
       },
     });
@@ -278,6 +421,9 @@ class ActiveSession {
         for (const block of content) {
           const b = block as { type: string; text?: string; name?: string; input?: unknown };
           if (b.type === "text" && b.text) {
+            // Remember the most recent text block so ExitPlanMode's permission
+            // ask can surface the plan markdown that immediately preceded it.
+            this.lastAssistantText = b.text;
             const cm = this.makeMessage("assistant", b.text);
             await appendMessage(this.todoId, cm);
             listener.onMessage(this.todoId, cm);
@@ -363,13 +509,25 @@ class ActiveSession {
   }
 
   snapshot(): SessionMeta {
+    // Project the modern PendingInteraction down onto the legacy
+    // PendingPermission field so persisted metas (and any old reader) see
+    // something sensible. The UI prefers `pending_interaction` when present.
+    const legacy =
+      this.pendingInteraction?.kind === "tool_permission"
+        ? {
+            request_id: this.pendingInteraction.id,
+            tool: this.pendingInteraction.tool,
+            input: this.pendingInteraction.input,
+          }
+        : null;
     return {
       todo_id: this.todoId,
       session_id: this.sessionId,
       status: this.status,
       permission_mode: this.permissionMode,
       cwd: this.cwd,
-      pending_permission: this.pendingPermission,
+      pending_permission: legacy,
+      pending_interaction: this.pendingInteraction,
       started_at: this.startedAt,
       last_activity_at: this.lastActivityAt,
       claude_todos: this.claudeTodos.length ? this.claudeTodos : undefined,
@@ -379,6 +537,32 @@ class ActiveSession {
       model: this.model || undefined,
       codex_review_active: this.codexReviewActive || undefined,
     };
+  }
+
+  // Park the SDK callback waiting on a user response. Sets pending state,
+  // notifies the listener, then suspends on the resolver. The AbortSignal
+  // surfaces session close — when the SDK cancels mid-prompt the promise
+  // resolves with `null` so the caller can short-circuit cleanly.
+  private async askInteraction(
+    interaction: PendingInteraction,
+    listener: Listener,
+    signal: AbortSignal | undefined,
+  ): Promise<InteractionResponse | null> {
+    this.pendingInteraction = interaction;
+    this.setStatus("asking", listener);
+    listener.onInteractionRequest(this.todoId, interaction);
+    const result = await new Promise<InteractionResponse | null>((resolve) => {
+      this.interactionResolvers.set(interaction.id, resolve as AnyInteractionResolver);
+      if (signal) {
+        const onAbort = () => {
+          if (this.interactionResolvers.delete(interaction.id)) resolve(null);
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+    this.pendingInteraction = null;
+    return result;
   }
 
   setCodexReviewActive(active: boolean, listener: Listener): void {
@@ -470,11 +654,14 @@ class ActiveSession {
     this.setStatus(this.status, listener);
   }
 
-  resolvePermission(requestId: string, allow: boolean): boolean {
-    const resolver = this.permissionResolvers.get(requestId);
+  // Resolve an in-flight interaction by id. Returns false if no resolver was
+  // registered for that id (e.g. the SDK already aborted, or the id is stale
+  // from a stop/restart).
+  resolveInteraction(id: string, response: InteractionResponse): boolean {
+    const resolver = this.interactionResolvers.get(id);
     if (!resolver) return false;
-    this.permissionResolvers.delete(requestId);
-    resolver(allow);
+    this.interactionResolvers.delete(id);
+    resolver(response);
     return true;
   }
 
@@ -493,10 +680,22 @@ class ActiveSession {
     this.stopping = true;
     await this.interrupt();
     this.inputQueue.close();
-    // Resolve any outstanding permissions to deny so the SDK can finish
-    for (const [id, resolver] of this.permissionResolvers.entries()) {
-      resolver(false);
-      this.permissionResolvers.delete(id);
+    // Resolve any outstanding interactions as a safe deny so the SDK can
+    // finish. Each kind has its own "decline" shape; one resolver per kind.
+    for (const [id, resolver] of this.interactionResolvers.entries()) {
+      const kind = this.pendingInteraction?.id === id
+        ? this.pendingInteraction.kind
+        : null;
+      if (kind === "question") {
+        resolver({ kind: "question", answers: {} });
+      } else if (kind === "plan_approval") {
+        resolver({ kind: "plan_approval", allow: false, message: "session closed" });
+      } else if (kind === "elicitation") {
+        resolver({ kind: "elicitation", action: "cancel" });
+      } else {
+        resolver({ kind: "tool_permission", allow: false, message: "session closed" });
+      }
+      this.interactionResolvers.delete(id);
     }
     if (this.loopPromise) await this.loopPromise.catch(() => undefined);
   }

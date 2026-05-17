@@ -19,7 +19,7 @@ import { broadcast } from "./ws.js";
 import { runShell } from "./shell-exec.js";
 import { appendMessage } from "./transcript.js";
 import { nanoid } from "nanoid";
-import type { ChatMessage } from "./types.js";
+import type { ChatMessage, InteractionResponse } from "./types.js";
 import { readPreferences, writePreferences } from "./preferences.js";
 import type { Preferences } from "./preferences.js";
 import { discoverSlashCommands } from "./slash-commands.js";
@@ -329,6 +329,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  app.post<{
+    Params: { id: string };
+    Body: { id?: string; response?: InteractionResponse };
+  }>("/api/sessions/:id/interaction", async (req, reply) => {
+    const { id, response } = req.body ?? {};
+    if (!id || !response || typeof response !== "object") {
+      reply.code(400);
+      return { error: "id_and_response_required" };
+    }
+    const session = sessionManager.get(req.params.id);
+    if (!session) {
+      reply.code(404);
+      return { error: "session_not_found" };
+    }
+    const ok = session.resolveInteraction(id, response);
+    if (!ok) {
+      reply.code(404);
+      return { error: "interaction_not_found" };
+    }
+    return { ok: true };
+  });
+
+  // Back-compat: older clients still POST allow/deny here.
   app.post<{ Params: { id: string }; Body: { request_id?: string; allow?: boolean } }>(
     "/api/sessions/:id/permission",
     async (req, reply) => {
@@ -342,7 +365,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         reply.code(404);
         return { error: "session_not_found" };
       }
-      const ok = session.resolvePermission(request_id, allow);
+      const ok = session.resolveInteraction(request_id, {
+        kind: "tool_permission",
+        allow,
+      });
       if (!ok) {
         reply.code(404);
         return { error: "permission_not_found" };
@@ -363,7 +389,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  app.post<{ Params: { id: string } }>(
+  app.post<{ Params: { id: string }; Body: { prompt?: string } }>(
     "/api/sessions/:id/codex-review",
     async (req, reply) => {
       const session = sessionManager.get(req.params.id);
@@ -371,15 +397,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         reply.code(404);
         return { error: "session_not_found" };
       }
+      const customPrompt = req.body?.prompt?.trim();
       // Fire-and-forget; review messages stream via WS as each repo finishes.
-      void runCodexReview(req.params.id, {
-        emitMessage: (todoId, message) => {
-          broadcast({
-            type: "session.message",
-            payload: { todo_id: todoId, message },
-          });
+      void runCodexReview(
+        req.params.id,
+        {
+          emitMessage: (todoId, message) => {
+            broadcast({
+              type: "session.message",
+              payload: { todo_id: todoId, message },
+            });
+          },
         },
-      }).catch((err) => {
+        customPrompt ? { customPrompt } : {},
+      ).catch((err) => {
         app.log.error({ err }, "codex review failed");
       });
       return { ok: true };

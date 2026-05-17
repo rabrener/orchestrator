@@ -14,7 +14,8 @@ import {
 } from "./notifications.js";
 import type {
   ChatMessage,
-  PendingPermission,
+  InteractionResponse,
+  PendingInteraction,
   PermissionMode,
   SessionMeta,
   SlashCommand,
@@ -88,16 +89,26 @@ export function App() {
         const list = prev[e.payload.todo_id] ?? [];
         return { ...prev, [e.payload.todo_id]: [...list, e.payload.message] };
       });
-    } else if (e.type === "session.permission_request") {
+    } else if (e.type === "session.interaction_request") {
       setSessions((prev) => {
         const cur = prev[e.payload.todo_id];
         if (!cur) return prev;
+        const interaction = e.payload.interaction;
+        const legacyPerm =
+          interaction.kind === "tool_permission"
+            ? {
+                request_id: interaction.id,
+                tool: interaction.tool,
+                input: interaction.input,
+              }
+            : null;
         return {
           ...prev,
           [e.payload.todo_id]: {
             ...cur,
             status: "asking",
-            pending_permission: e.payload.permission,
+            pending_interaction: interaction,
+            pending_permission: legacyPerm,
           },
         };
       });
@@ -324,22 +335,22 @@ export function App() {
     }
   };
 
-  const onResolvePermission = async (
-    perm: PendingPermission,
-    allow: boolean,
+  const onResolveInteraction = async (
+    interaction: PendingInteraction,
+    response: InteractionResponse,
   ) => {
     if (!selectedTodoId) return;
     try {
-      await api.resolvePermission(selectedTodoId, perm.request_id, allow);
+      await api.resolveInteraction(selectedTodoId, interaction.id, response);
     } catch (err) {
       setError(String(err));
     }
   };
 
-  const onCodexReview = async () => {
+  const onCodexReview = async (prompt?: string) => {
     if (!selectedTodoId) return;
     try {
-      await api.codexReview(selectedTodoId);
+      await api.codexReview(selectedTodoId, prompt);
     } catch (err) {
       setError(String(err));
     }
@@ -429,7 +440,7 @@ export function App() {
           onSendMessage={onSendMessage}
           onRunShell={onRunShell}
           onSetMode={onSetMode}
-          onResolvePermission={onResolvePermission}
+          onResolveInteraction={onResolveInteraction}
           onCodexReview={onCodexReview}
           onComplete={() => selectedTodo && onCompleteTodo(selectedTodo.id)}
           onStop={onStopSession}

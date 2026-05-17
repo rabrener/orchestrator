@@ -31,10 +31,10 @@ async function main(): Promise<void> {
     onMessage: (todoId, message) => {
       broadcast({ type: "session.message", payload: { todo_id: todoId, message } });
     },
-    onPermissionRequest: (todoId, permission) => {
+    onInteractionRequest: (todoId, interaction) => {
       broadcast({
-        type: "session.permission_request",
-        payload: { todo_id: todoId, permission },
+        type: "session.interaction_request",
+        payload: { todo_id: todoId, interaction },
       });
     },
     onComposerRestore: (todoId, text) => {

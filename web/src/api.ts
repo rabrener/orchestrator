@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   CodexStatus,
   FsListing,
+  InteractionResponse,
   PermissionMode,
   SessionMeta,
   SlashCommand,
@@ -88,13 +89,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ mode }),
     }),
-  resolvePermission: (todoId: string, requestId: string, allow: boolean) =>
-    jsonFetch(`/api/sessions/${todoId}/permission`, {
+  resolveInteraction: (
+    todoId: string,
+    id: string,
+    response: InteractionResponse,
+  ) =>
+    jsonFetch(`/api/sessions/${todoId}/interaction`, {
       method: "POST",
-      body: JSON.stringify({ request_id: requestId, allow }),
+      body: JSON.stringify({ id, response }),
     }),
-  codexReview: (todoId: string) =>
-    jsonFetch(`/api/sessions/${todoId}/codex-review`, { method: "POST" }),
+  codexReview: (todoId: string, prompt?: string) =>
+    jsonFetch(`/api/sessions/${todoId}/codex-review`, {
+      method: "POST",
+      body: JSON.stringify(prompt ? { prompt } : {}),
+    }),
   getCodexStatus: (refresh = false) =>
     jsonFetch<CodexStatus>(
       `/api/integrations/codex${refresh ? "?refresh=1" : ""}`,

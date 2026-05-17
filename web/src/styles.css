@@ -1046,6 +1046,102 @@ textarea {
   border-color: var(--warn);
 }
 
+/* Split-button: main action on the left, caret popping a menu to the right */
+.codex-split-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.codex-split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.codex-split-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid var(--border);
+  padding-left: 8px;
+  padding-right: 8px;
+  font-size: 10px;
+  line-height: 1;
+}
+.codex-split-menu {
+  position: absolute;
+  /* Anchor to the button's bottom edge so the menu grows upward — this
+     control lives in the chat footer, so a downward-opening menu would clip
+     against the window edge. */
+  bottom: 0;
+  left: calc(100% + 6px);
+  width: 280px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.codex-split-menu-item {
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.codex-split-menu-item:hover,
+.codex-split-menu-item:focus {
+  background: var(--bg-elev-2);
+  outline: 0;
+}
+.codex-split-menu-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.codex-split-menu-desc {
+  font-size: 11px;
+  color: var(--text-mute);
+  line-height: 1.35;
+}
+.codex-split-custom {
+  width: 360px;
+  padding: 10px 12px;
+  gap: 8px;
+}
+.codex-split-custom-label {
+  font-size: 11px;
+  color: var(--text-mute);
+  line-height: 1.35;
+}
+.codex-split-custom-input {
+  width: 100%;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 12px;
+  color: inherit;
+  font-family: var(--mono);
+  resize: vertical;
+  min-height: 90px;
+}
+.codex-split-custom-input:focus {
+  outline: 0;
+  border-color: var(--accent);
+}
+.codex-split-custom-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
 .codex-popover {
   position: absolute;
   bottom: calc(100% + 8px);
@@ -1187,6 +1283,235 @@ textarea {
 .permission-actions {
   display: flex;
   gap: 8px;
+}
+
+/* ── Interaction panel (tool permission / question / plan / elicitation) */
+.interaction-panel {
+  border: 1px solid var(--warn);
+  background: rgba(224, 175, 104, 0.08);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.interaction-question {
+  border-color: var(--accent);
+  background: rgba(102, 153, 204, 0.06);
+}
+.interaction-plan {
+  border-color: var(--accent);
+  background: rgba(102, 153, 204, 0.06);
+}
+.interaction-elicitation {
+  border-color: var(--accent);
+  background: rgba(102, 153, 204, 0.06);
+}
+.interaction-header {
+  font-size: 12px;
+  color: var(--warn);
+}
+.interaction-question .interaction-header,
+.interaction-plan .interaction-header,
+.interaction-elicitation .interaction-header {
+  color: var(--accent);
+}
+.interaction-subtitle {
+  color: var(--text-mute);
+  font-weight: normal;
+}
+.interaction-description {
+  font-size: 12px;
+  color: var(--text-mute);
+}
+.interaction-reason {
+  font-size: 11px;
+  color: var(--text-mute);
+  font-style: italic;
+}
+.interaction-message {
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.interaction-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Question form */
+.question-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.question-block:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.question-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.question-header-chip {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-elev-2);
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+.question-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+.question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--bg-elev-2);
+}
+.question-option:hover {
+  border-color: var(--accent);
+}
+.question-option.is-checked {
+  border-color: var(--accent);
+  background: rgba(102, 153, 204, 0.12);
+}
+.question-option input {
+  margin-top: 3px;
+}
+.question-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.question-option-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.question-option-desc {
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.question-preview {
+  background: var(--bg-elev-2);
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+}
+.question-other {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: inherit;
+}
+.question-other:focus {
+  outline: 0;
+  border-color: var(--accent);
+}
+
+/* Plan approval */
+.plan-markdown {
+  background: var(--bg-elev-2);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.plan-markdown p {
+  margin: 0 0 8px;
+}
+.plan-prompts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.plan-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.plan-prompt-tool {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  background: var(--bg-elev-2);
+  border-radius: 3px;
+  color: var(--text-mute);
+}
+.plan-prompt-text {
+  flex: 1;
+}
+
+/* Elicitation */
+.elicitation-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.elicitation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.elicitation-field-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.elicitation-required {
+  color: var(--warn);
+}
+.elicitation-field-desc {
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.elicitation-field input[type="text"],
+.elicitation-field input[type="number"] {
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: inherit;
+}
+.elicitation-field input:focus {
+  outline: 0;
+  border-color: var(--accent);
+}
+.elicitation-url a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+}
+.elicitation-url a:hover {
+  text-decoration: underline;
 }
 
 .chat-input {

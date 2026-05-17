@@ -31,11 +31,101 @@ export interface TodayFile {
   todos: Todo[];
 }
 
+// Legacy shape kept for back-compat with persisted SessionMeta written before
+// the discriminated-union refactor. New code should branch on PendingInteraction.
 export interface PendingPermission {
   request_id: string;
   tool: string;
   input: unknown;
 }
+
+// One of the SDK's PermissionUpdate variants — kept structurally typed so we
+// can pass `suggestions` through to the UI and back without re-shaping. The
+// SDK's PermissionUpdate is a union and we don't need to discriminate it here;
+// the UI surfaces them as opaque "always allow" chips.
+export type SuggestedPermissionUpdate = Record<string, unknown>;
+
+export interface AskUserQuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+export interface AskUserQuestion {
+  question: string;
+  header: string;
+  options: AskUserQuestionOption[];
+  multiSelect: boolean;
+}
+export interface PlanAllowedPrompt {
+  tool: "Bash";
+  prompt: string;
+}
+
+export type PendingInteraction =
+  | {
+      kind: "tool_permission";
+      id: string;
+      tool_use_id?: string;
+      tool: string;
+      input: unknown;
+      title?: string;
+      display_name?: string;
+      description?: string;
+      blocked_path?: string;
+      decision_reason?: string;
+      suggestions?: SuggestedPermissionUpdate[];
+    }
+  | {
+      kind: "question";
+      id: string;
+      tool_use_id?: string;
+      questions: AskUserQuestion[];
+    }
+  | {
+      kind: "plan_approval";
+      id: string;
+      tool_use_id?: string;
+      plan_markdown: string;
+      allowed_prompts: PlanAllowedPrompt[];
+    }
+  | {
+      kind: "elicitation";
+      id: string;
+      server_name: string;
+      message: string;
+      mode: "form" | "url";
+      url?: string;
+      schema?: Record<string, unknown>;
+      title?: string;
+      display_name?: string;
+      description?: string;
+    };
+
+export type InteractionResponse =
+  | {
+      kind: "tool_permission";
+      allow: boolean;
+      updated_input?: Record<string, unknown>;
+      updated_permissions?: SuggestedPermissionUpdate[];
+      interrupt_on_deny?: boolean;
+      message?: string;
+    }
+  | {
+      kind: "question";
+      answers: Record<string, string>;
+      annotations?: Record<string, { notes?: string; preview?: string }>;
+    }
+  | {
+      kind: "plan_approval";
+      allow: boolean;
+      allowed_prompts?: PlanAllowedPrompt[];
+      message?: string;
+    }
+  | {
+      kind: "elicitation";
+      action: "accept" | "decline" | "cancel";
+      content?: Record<string, unknown>;
+    };
 
 export interface ClaudeTodo {
   content: string;
@@ -52,6 +142,11 @@ export interface SessionMeta {
   pending_permission: PendingPermission | null;
   started_at: string;
   last_activity_at: string;
+  // Active interactive request blocking the session (tool permission, question,
+  // plan approval, MCP elicitation). When set, the UI renders the appropriate
+  // form. `pending_permission` above is retained for back-compat with persisted
+  // metas written before this refactor — new code should read this field.
+  pending_interaction?: PendingInteraction | null;
   claude_todos?: ClaudeTodo[];
   // Slash command names the SDK reports as runnable for this session
   // (from system/init). Names only; metadata comes from the discovery endpoint.
@@ -82,5 +177,8 @@ export type WsEvent =
   | { type: "todos.updated"; payload: Todo[] }
   | { type: "session.status"; payload: { todo_id: string; status: SessionStatus; meta?: SessionMeta } }
   | { type: "session.message"; payload: { todo_id: string; message: ChatMessage } }
-  | { type: "session.permission_request"; payload: { todo_id: string; permission: PendingPermission } }
+  | {
+      type: "session.interaction_request";
+      payload: { todo_id: string; interaction: PendingInteraction };
+    }
   | { type: "session.composer_restore"; payload: { todo_id: string; text: string } };
