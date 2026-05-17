@@ -89,6 +89,52 @@ export function App() {
         const list = prev[e.payload.todo_id] ?? [];
         return { ...prev, [e.payload.todo_id]: [...list, e.payload.message] };
       });
+    } else if (e.type === "session.message.start") {
+      setMessages((prev) => {
+        const list = prev[e.payload.todo_id] ?? [];
+        // Server pushes start once per streamed assistant block. Idempotent in
+        // case a duplicate slips through (reconnect, etc.) — id collisions are
+        // resolved by replacing the existing row.
+        const existing = list.findIndex((m) => m.id === e.payload.message.id);
+        const next = existing === -1
+          ? [...list, e.payload.message]
+          : list.map((m, i) => (i === existing ? e.payload.message : m));
+        return { ...prev, [e.payload.todo_id]: next };
+      });
+    } else if (e.type === "session.message.delta") {
+      setMessages((prev) => {
+        const list = prev[e.payload.todo_id];
+        if (!list) return prev;
+        const idx = list.findIndex((m) => m.id === e.payload.id);
+        if (idx === -1) return prev;
+        const target = list[idx];
+        const updated: ChatMessage = {
+          ...target,
+          text: target.text + e.payload.text_chunk,
+        };
+        const next = list.slice();
+        next[idx] = updated;
+        return { ...prev, [e.payload.todo_id]: next };
+      });
+    } else if (e.type === "session.message.end") {
+      setMessages((prev) => {
+        const list = prev[e.payload.todo_id];
+        if (!list) return prev;
+        const idx = list.findIndex((m) => m.id === e.payload.id);
+        if (idx === -1) return prev;
+        const target = list[idx];
+        // End carries the canonical final text so we reconcile in case of a
+        // dropped delta. `streaming` flips off → MessageRow swaps from raw
+        // <pre> to the markdown renderer.
+        const finalized: ChatMessage = {
+          ...target,
+          text: e.payload.text,
+          streaming: false,
+        };
+        const next = list.slice();
+        next[idx] = finalized;
+        return { ...prev, [e.payload.todo_id]: next };
+      });
     } else if (e.type === "session.interaction_request") {
       setSessions((prev) => {
         const cur = prev[e.payload.todo_id];

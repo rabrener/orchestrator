@@ -109,6 +109,13 @@ async function resolveSessionCwd(
 type Listener = {
   onStatus: (todoId: string, status: SessionStatus, meta: SessionMeta) => void;
   onMessage: (todoId: string, message: ChatMessage) => void;
+  // Streaming hooks for partial assistant text. `onMessageStart` opens a row,
+  // `onMessageDelta` appends a chunk by id, `onMessageEnd` finalizes with the
+  // canonical text. Tool / system / non-streamed rows still go through
+  // `onMessage` as a single complete event.
+  onMessageStart: (todoId: string, message: ChatMessage) => void;
+  onMessageDelta: (todoId: string, id: string, textChunk: string) => void;
+  onMessageEnd: (todoId: string, id: string, text: string) => void;
   onInteractionRequest: (todoId: string, interaction: PendingInteraction) => void;
   onComposerRestore: (todoId: string, text: string) => void;
 };
@@ -174,6 +181,23 @@ class ActiveSession {
   // iterator throws and this flips false — the next sendUserMessage respawns
   // the query on the same conversation thread.
   private isLoopActive = false;
+  // In-flight streamed assistant text blocks, keyed by content-block index
+  // (the only stable join key the SDK gives us within one partial-stream
+  // window — the per-event `uuid` is regenerated for every delta, and the
+  // final SDKAssistantMessage uses a different uuid with its own
+  // post-processed block indices that strip thinking blocks). Populated and
+  // drained inside handleStreamEvent; flushStreamingTextBlocks() force-closes
+  // anything still open at turn boundaries (interrupt, error).
+  private streamingTextBlocks = new Map<
+    number,
+    { id: string; text: string }
+  >();
+  // True if we've observed at least one text content_block_start in the
+  // current assistant message stream. Lets the final-assistant handler know
+  // whether to skip text blocks (already emitted live) or fall back to the
+  // non-streaming emit+persist path. Reset on each stream_event.message_start
+  // and cleared again at the end of the assistant branch as belt-and-braces.
+  private currentTurnStreamedText = false;
 
   private inputQueue: InputQueue<SDKUserMessage>;
   private q: Query | null = null;
@@ -207,6 +231,14 @@ class ActiveSession {
         permissionMode: this.permissionMode,
         allowedTools: ALLOWED_READ_TOOLS,
         systemPrompt,
+        // Stream assistant text into the UI as it generates instead of waiting
+        // for the full block. The iterator additionally yields
+        // SDKPartialAssistantMessage events (type: 'stream_event') wrapping the
+        // raw Anthropic SSE deltas; consume() turns text_delta events into
+        // websocket session.message.delta broadcasts. The original 'assistant'
+        // event still arrives at the end with the complete blocks — that's
+        // when we persist to disk and finalize the streamed row.
+        includePartialMessages: true,
         // Required gate so users can opt into 'bypassPermissions' via the dropdown.
         // Does not auto-enable bypass — only permits the mode switch.
         allowDangerouslySkipPermissions: true,
@@ -376,8 +408,19 @@ class ActiveSession {
         is_error?: boolean;
         slash_commands?: unknown;
         model?: unknown;
+        uuid?: unknown;
+        event?: unknown;
       };
-      console.log(`[session ${this.todoId}] sdk msg:`, anyMsg.type, anyMsg.subtype ?? "");
+      // Suppress stream_event from the per-message log — these arrive at SSE
+      // cadence (many per second) and would drown out the structural messages.
+      if (anyMsg.type !== "stream_event") {
+        console.log(`[session ${this.todoId}] sdk msg:`, anyMsg.type, anyMsg.subtype ?? "");
+      }
+
+      if (anyMsg.type === "stream_event") {
+        this.handleStreamEvent(anyMsg, listener);
+        continue;
+      }
 
       if (anyMsg.type === "system" && anyMsg.subtype === "init" && anyMsg.session_id) {
         this.sessionId = anyMsg.session_id;
@@ -418,12 +461,20 @@ class ActiveSession {
           if (tokens > 0) this.contextTokens = tokens;
         }
         const content = message?.content ?? [];
-        for (const block of content) {
-          const b = block as { type: string; text?: string; name?: string; input?: unknown };
+        for (let i = 0; i < content.length; i++) {
+          const b = content[i] as { type: string; text?: string; name?: string; input?: unknown };
           if (b.type === "text" && b.text) {
             // Remember the most recent text block so ExitPlanMode's permission
             // ask can surface the plan markdown that immediately preceded it.
             this.lastAssistantText = b.text;
+            if (this.currentTurnStreamedText) {
+              // Stream already delivered + persisted this block live in
+              // handleStreamEvent (content_block_stop). Nothing to do.
+              continue;
+            }
+            // Fallback path — no partial events fired for this turn
+            // (degraded SDK mode, or the run pre-empted before any deltas
+            // arrived). Emit + persist as a single complete message.
             const cm = this.makeMessage("assistant", b.text);
             await appendMessage(this.todoId, cm);
             listener.onMessage(this.todoId, cm);
@@ -446,6 +497,10 @@ class ActiveSession {
             // Skip thinking blocks for now to avoid noise
           }
         }
+        // Belt-and-braces: clear the per-turn streaming flag in case the
+        // next assistant message arrives before stream_event.message_start
+        // fires (or stream events are disabled mid-session).
+        this.currentTurnStreamedText = false;
         continue;
       }
 
@@ -454,6 +509,12 @@ class ActiveSession {
           this.sessionId = anyMsg.session_id;
           await setTodoSessionId(this.todoId, this.sessionId);
         }
+        // If a turn ended with text blocks still mid-stream (e.g. user hit
+        // stop before the SDK emitted the final 'assistant' message), close
+        // those rows now so the UI doesn't keep them in <pre> mode forever.
+        // Persist what we accumulated so the on-disk transcript matches what
+        // the user actually saw.
+        await this.flushStreamingTextBlocks(listener);
         const isError = anyMsg.is_error === true || (anyMsg.subtype && anyMsg.subtype !== "success");
         if (isError) {
           if (this.stopping) {
@@ -486,6 +547,144 @@ class ActiveSession {
       }
     }
     this.setStatus("idle", listener);
+  }
+
+  // Translate one SDKPartialAssistantMessage event into start/delta/end
+  // callbacks. We only stream text_delta events; tool-input JSON, thinking,
+  // citations, and signature deltas are dropped to keep the UI clean.
+  //
+  // Important: the SDK regenerates a fresh `uuid` on the partial-event
+  // wrapper for every delta, and the final SDKAssistantMessage carries yet
+  // another uuid with content-block indices that don't line up (the SDK
+  // strips thinking blocks from the final). So neither uuid nor the final-
+  // message indices are usable as a join key. We key streamed rows purely by
+  // `event.index` from the raw API stream, valid for the duration of one
+  // partial-stream window. Finalization happens on `content_block_stop`; the
+  // final assistant branch then skips text blocks it knows were streamed.
+  private handleStreamEvent(
+    anyMsg: { event?: unknown },
+    listener: Listener,
+  ): void {
+    const event = anyMsg.event as
+      | {
+          type?: string;
+          index?: number;
+          content_block?: { type?: string; text?: string };
+          delta?: { type?: string; text?: string };
+        }
+      | undefined;
+    if (!event || typeof event.type !== "string") return;
+
+    if (event.type === "message_start") {
+      // New assistant message starting. Clear any leftover per-turn state in
+      // case the previous turn's flush missed something.
+      this.streamingTextBlocks.clear();
+      this.currentTurnStreamedText = false;
+      return;
+    }
+
+    if (event.type === "content_block_start" && event.content_block?.type === "text") {
+      const idx = event.index ?? 0;
+      if (this.streamingTextBlocks.has(idx)) return;
+      const id = `m_s_${nanoid(10)}`;
+      const initial = event.content_block.text ?? "";
+      this.streamingTextBlocks.set(idx, { id, text: initial });
+      this.currentTurnStreamedText = true;
+      // Flip status to working immediately so the UI shows the agent is
+      // typing — this is often the first sign of life for the turn.
+      this.setStatus("working", listener);
+      const placeholder: ChatMessage = {
+        id,
+        role: "assistant",
+        text: initial,
+        ts: new Date().toISOString(),
+        streaming: true,
+      };
+      listener.onMessageStart(this.todoId, placeholder);
+      return;
+    }
+
+    if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+      const idx = event.index ?? 0;
+      let entry = this.streamingTextBlocks.get(idx);
+      if (!entry) {
+        // We missed the start (or the SDK skipped it for this block) — open
+        // the row lazily so deltas aren't silently dropped.
+        const id = `m_s_${nanoid(10)}`;
+        entry = { id, text: "" };
+        this.streamingTextBlocks.set(idx, entry);
+        this.currentTurnStreamedText = true;
+        listener.onMessageStart(this.todoId, {
+          id,
+          role: "assistant",
+          text: "",
+          ts: new Date().toISOString(),
+          streaming: true,
+        });
+      }
+      const chunk = event.delta.text ?? "";
+      if (!chunk) return;
+      entry.text += chunk;
+      listener.onMessageDelta(this.todoId, entry.id, chunk);
+      return;
+    }
+
+    if (event.type === "content_block_stop") {
+      const idx = event.index ?? 0;
+      const entry = this.streamingTextBlocks.get(idx);
+      if (!entry) return;
+      this.streamingTextBlocks.delete(idx);
+      const cm: ChatMessage = {
+        id: entry.id,
+        role: "assistant",
+        text: entry.text,
+        ts: new Date().toISOString(),
+      };
+      // Persist now — this block is final per the API stream contract. Fire-
+      // and-forget so deltas keep flowing; an error just logs.
+      appendMessage(this.todoId, cm).catch((err) =>
+        console.error(`[session ${this.todoId}] streaming persist failed`, err),
+      );
+      listener.onMessageEnd(this.todoId, entry.id, entry.text);
+      // Capture the most recent text so ExitPlanMode's permission ask can
+      // surface the plan markdown — the final 'assistant' message branch
+      // would otherwise set this, but we skip text blocks there when
+      // streaming is on.
+      if (entry.text) this.lastAssistantText = entry.text;
+      return;
+    }
+
+    // message_delta, message_stop, thinking deltas, input_json deltas,
+    // citations, signatures: nothing to do — tool_use still arrives whole in
+    // the final 'assistant' message; anything left mid-stream at a terminal
+    // event is flushed by flushStreamingTextBlocks().
+  }
+
+  // Force-close any streamed rows still open. Called from the 'result' branch
+  // (success or error) so an interrupt mid-stream doesn't leave the UI stuck
+  // in streaming state. Persists each accumulated text so the on-disk
+  // transcript matches what the user saw.
+  private async flushStreamingTextBlocks(listener: Listener): Promise<void> {
+    this.currentTurnStreamedText = false;
+    if (this.streamingTextBlocks.size === 0) return;
+    const entries = Array.from(this.streamingTextBlocks.values());
+    this.streamingTextBlocks.clear();
+    for (const entry of entries) {
+      if (entry.text.length > 0) {
+        const cm: ChatMessage = {
+          id: entry.id,
+          role: "assistant",
+          text: entry.text,
+          ts: new Date().toISOString(),
+        };
+        try {
+          await appendMessage(this.todoId, cm);
+        } catch (err) {
+          console.error(`[session ${this.todoId}] flush persist failed`, err);
+        }
+      }
+      listener.onMessageEnd(this.todoId, entry.id, entry.text);
+    }
   }
 
   private makeMessage(

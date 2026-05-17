@@ -160,6 +160,10 @@ export interface ChatMessage {
   ts: string;
   tool_name?: string;
   repo?: string;
+  // True while a streamed assistant row is still arriving. Used by the UI to
+  // render a lightweight <pre> view (deferring markdown parsing) until the
+  // server signals `session.message.end`.
+  streaming?: boolean;
 }
 
 export interface CodexStatus {
@@ -173,6 +177,9 @@ export type WsEvent =
   | { type: "todos.updated"; payload: Todo[] }
   | { type: "session.status"; payload: { todo_id: string; status: SessionStatus; meta?: SessionMeta } }
   | { type: "session.message"; payload: { todo_id: string; message: ChatMessage } }
+  | { type: "session.message.start"; payload: { todo_id: string; message: ChatMessage } }
+  | { type: "session.message.delta"; payload: { todo_id: string; id: string; text_chunk: string } }
+  | { type: "session.message.end"; payload: { todo_id: string; id: string; text: string } }
   | {
       type: "session.interaction_request";
       payload: { todo_id: string; interaction: PendingInteraction };

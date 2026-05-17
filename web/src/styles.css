@@ -758,6 +758,16 @@ textarea {
   background: transparent;
   border: 1px solid var(--border);
 }
+.msg-assistant.streaming .msg-text::after {
+  content: "▍";
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--text-mute);
+  animation: msg-stream-cursor 1.1s steps(1) infinite;
+}
+@keyframes msg-stream-cursor {
+  50% { opacity: 0; }
+}
 .msg-tool {
   background: var(--bg-elev-2);
   border-left: 2px solid var(--info);

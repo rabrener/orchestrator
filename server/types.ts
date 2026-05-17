@@ -171,12 +171,23 @@ export interface ChatMessage {
   ts: string;
   tool_name?: string;
   repo?: string;
+  // True only while a streamed assistant block is still arriving. Never
+  // persisted to the transcript — the on-disk row is always the final form.
+  streaming?: boolean;
 }
 
 export type WsEvent =
   | { type: "todos.updated"; payload: Todo[] }
   | { type: "session.status"; payload: { todo_id: string; status: SessionStatus; meta?: SessionMeta } }
   | { type: "session.message"; payload: { todo_id: string; message: ChatMessage } }
+  // Streaming: a new assistant row is opening. Carries an empty placeholder so
+  // the UI can render it immediately and append text via `session.message.delta`.
+  | { type: "session.message.start"; payload: { todo_id: string; message: ChatMessage } }
+  // Streaming: append text to an in-flight row by id.
+  | { type: "session.message.delta"; payload: { todo_id: string; id: string; text_chunk: string } }
+  // Streaming: row is complete. `text` carries the canonical final string so
+  // the client can reconcile with what it accumulated.
+  | { type: "session.message.end"; payload: { todo_id: string; id: string; text: string } }
   | {
       type: "session.interaction_request";
       payload: { todo_id: string; interaction: PendingInteraction };

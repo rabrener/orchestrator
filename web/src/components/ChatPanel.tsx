@@ -1240,14 +1240,20 @@ const MessageRow = memo(
       message.role === "assistant" ||
       message.role === "system" ||
       message.role === "codex";
+    // While a streamed assistant block is still arriving, render the
+    // partial text as plain <pre>. Re-parsing GFM markdown on every token
+    // is wasteful and produces ugly mid-flight states (half-formed code
+    // fences, unclosed lists). The renderer flips to markdown once
+    // session.message.end clears `streaming`.
+    const isStreaming = message.streaming === true;
     return (
-      <div className={`msg msg-${message.role}`}>
+      <div className={`msg msg-${message.role}${isStreaming ? " streaming" : ""}`}>
         <div className="msg-meta">
           {message.role}
           {message.tool_name ? `: ${message.tool_name}` : ""}
           {message.repo ? ` (${message.repo})` : ""}
         </div>
-        {renderAsMarkdown ? (
+        {renderAsMarkdown && !isStreaming ? (
           <div className="msg-md">
             <RenderedMarkdown source={message.text} />
           </div>
@@ -1262,7 +1268,8 @@ const MessageRow = memo(
     a.message.text === b.message.text &&
     a.message.role === b.message.role &&
     a.message.tool_name === b.message.tool_name &&
-    a.message.repo === b.message.repo,
+    a.message.repo === b.message.repo &&
+    a.message.streaming === b.message.streaming,
 );
 
 const ToolRunCard = memo(

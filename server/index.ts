@@ -31,6 +31,24 @@ async function main(): Promise<void> {
     onMessage: (todoId, message) => {
       broadcast({ type: "session.message", payload: { todo_id: todoId, message } });
     },
+    onMessageStart: (todoId, message) => {
+      broadcast({
+        type: "session.message.start",
+        payload: { todo_id: todoId, message },
+      });
+    },
+    onMessageDelta: (todoId, id, textChunk) => {
+      broadcast({
+        type: "session.message.delta",
+        payload: { todo_id: todoId, id, text_chunk: textChunk },
+      });
+    },
+    onMessageEnd: (todoId, id, text) => {
+      broadcast({
+        type: "session.message.end",
+        payload: { todo_id: todoId, id, text },
+      });
+    },
     onInteractionRequest: (todoId, interaction) => {
       broadcast({
         type: "session.interaction_request",
