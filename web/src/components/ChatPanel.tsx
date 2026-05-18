@@ -1234,26 +1234,61 @@ const RenderedMarkdown = memo(function RenderedMarkdown({ source }: { source: st
   return <ReactMarkdown remarkPlugins={[remarkGfm]}>{source}</ReactMarkdown>;
 });
 
+// Split a partially-streamed assistant message into a stable "head" that's
+// safe to render as markdown and a live "tail" that stays as <pre>. The
+// boundary is the last \n\n (markdown block separator), so finished blocks
+// flip to rendered markdown while the in-progress block stays plain until
+// it's terminated. If the head would contain an unclosed ``` fence, we
+// roll the split back to the fence opener so the half-fence doesn't render
+// as a giant code block in the head.
+function splitStreamingMarkdown(text: string): { head: string; tail: string } {
+  const lastBlockBreak = text.lastIndexOf("\n\n");
+  if (lastBlockBreak === -1) return { head: "", tail: text };
+  let splitAt = lastBlockBreak + 2;
+  const fenceRe = /^```/gm;
+  const openers: number[] = [];
+  let m: RegExpExecArray | null;
+  const headSlice = text.slice(0, splitAt);
+  while ((m = fenceRe.exec(headSlice)) !== null) openers.push(m.index);
+  if (openers.length % 2 === 1) {
+    splitAt = openers[openers.length - 1];
+  }
+  return { head: text.slice(0, splitAt), tail: text.slice(splitAt) };
+}
+
 const MessageRow = memo(
   function MessageRow({ message }: { message: ChatMessage }) {
     const renderAsMarkdown =
       message.role === "assistant" ||
       message.role === "system" ||
       message.role === "codex";
-    // While a streamed assistant block is still arriving, render the
-    // partial text as plain <pre>. Re-parsing GFM markdown on every token
-    // is wasteful and produces ugly mid-flight states (half-formed code
-    // fences, unclosed lists). The renderer flips to markdown once
-    // session.message.end clears `streaming`.
     const isStreaming = message.streaming === true;
+    if (renderAsMarkdown && isStreaming) {
+      const { head, tail } = splitStreamingMarkdown(message.text);
+      return (
+        <div className={`msg msg-${message.role} streaming`}>
+          <div className="msg-meta">
+            {message.role}
+            {message.tool_name ? `: ${message.tool_name}` : ""}
+            {message.repo ? ` (${message.repo})` : ""}
+          </div>
+          {head && (
+            <div className="msg-md">
+              <RenderedMarkdown source={head} />
+            </div>
+          )}
+          <pre className="msg-text">{tail}</pre>
+        </div>
+      );
+    }
     return (
-      <div className={`msg msg-${message.role}${isStreaming ? " streaming" : ""}`}>
+      <div className={`msg msg-${message.role}`}>
         <div className="msg-meta">
           {message.role}
           {message.tool_name ? `: ${message.tool_name}` : ""}
           {message.repo ? ` (${message.repo})` : ""}
         </div>
-        {renderAsMarkdown && !isStreaming ? (
+        {renderAsMarkdown ? (
           <div className="msg-md">
             <RenderedMarkdown source={message.text} />
           </div>
