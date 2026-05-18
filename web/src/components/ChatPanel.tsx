@@ -142,6 +142,21 @@ export function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length]);
 
+  // Streaming deltas mutate the last assistant row in place without changing
+  // messages.length, so the grow-on-count effect above never fires. Track the
+  // tail message's text and re-snap while pinned. Don't bump unreadCount here —
+  // a streaming message that started while pinned shouldn't become "unread"
+  // just because the user later scrolled up mid-stream.
+  const lastMessage = messages[messages.length - 1];
+  const lastMessageText = lastMessage?.text ?? "";
+  useEffect(() => {
+    if (!pinnedRef.current) return;
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, [lastMessageText]);
+
   // When the chat-log itself resizes (composer grew — e.g. vim mode mounting,
   // textarea auto-sizing, slash-command menu appearing), the browser leaves
   // scrollTop where it was, so the previous "bottom" slides out of view. If
